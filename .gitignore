@@ -2,7 +2,7 @@ node_modules/
 dist/
 build/
 
-# Never commit secrets. This repo is public.
+# Never commit secrets. Visibility is a toggle; history outlives it.
 .env
 .env.*
 !.env.example
