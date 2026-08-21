@@ -27,8 +27,12 @@ unproven part, so it's the only part the first build tests.
 
 ## Contributing notes
 
-This repository is public.
+This repository is currently private. Every rule below is written as though it were public,
+because visibility is a toggle and history is not: anything committed now survives a flip back.
+Assume that whatever is merged is published.
 
 - Never commit API keys, tokens, or anything from `.env`.
-- Generated runs land in `runs/` and are gitignored. Read one before adding it — a log may contain
-  agent output nobody has looked at.
+- `.env.example` is the one member of the `.env` family that is committable. **Placeholders only —
+  never real values.**
+- Generated runs land in `runs/` and are gitignored. Read one end to end before adding it: a log
+  may contain agent output nobody has looked at.
