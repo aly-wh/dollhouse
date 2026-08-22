@@ -29,8 +29,10 @@ unproven part, so it's the only part the first build tests.
 
 Node **20.19+**, **22.12+**, or **24+** — then `npm install`.
 
-Check `node -v` first, and `nvm use 22` if it is older — the failure mode below
-the floor is not a clean error message.
+Check `node -v` first. If you use nvm, `nvm use` picks up the pinned version from
+`.nvmrc` with no argument. If your Node is below the floor, `npm ci` will refuse
+outright and name the version it needs — `.npmrc` sets `engine-strict` so that
+`engines` is a gate rather than a suggestion.
 
 The floor comes from the dependency tree, not from anything in `src/`: seventeen
 lockfile packages require `^20.19.0 || >=22.12.0`, and below Node 20.12 `npm ci`
