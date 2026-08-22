@@ -1,0 +1,71 @@
+{
+  "id": "dollhouse",
+  "name": "The Dollhouse",
+
+  "note": "Five people, and nothing about them lives in code. Traits become the weights that multiply every score; relationships are opinions each of them holds about the others, and they are asymmetric on purpose. Adding a sixth person is an entry in `characters` and nothing else. Everyone starts on identical motives, which is a methodological choice rather than a lack of imagination: it means every difference in how their days go is attributable to traits, to relationships, to where they woke up and to their own seeded stream, and to nothing else. The format takes different starting motives happily.",
+
+  "memory": {
+    "note": "How experience feeds back into choice. In the cast file rather than the world file because it is a property of the people, not the building: how fast somebody takes offence and how long they hold it is as much a personality as how much they mind being dirty.",
+
+    "impressionInfluence": 0.4,
+    "impressionFadeHours": 36,
+    "bondInfluence": 0.55,
+    "bondFadeHours": 132,
+
+    "occupied": -0.3,
+    "unavailable": -0.24,
+    "worked": 0.035,
+
+    "talked": 0.1,
+    "walkedOut": -0.17,
+    "snubbed": -0.22
+  },
+
+  "characters": [
+    {
+      "id": "mara",
+      "name": "Mara",
+      "room": "bedroom-north",
+      "note": "Fastidious and restless, and finds very little funny. Showers on schedule, never sits down, thinks the piano is an afternoon wasted. She is the person the hot water runs out on, which is why she is the person who ends up at the basin, and why she has views about Dez.",
+      "traits": [["neat", 0.95], ["outgoing", 0.7], ["active", 0.85], ["playful", 0.1], ["nice", 0.55]],
+      "motives": [["hunger", 50], ["energy", 50], ["social", 50], ["fun", 50], ["hygiene", 50], ["comfort", 50]],
+      "relationships": [["dez", -0.4], ["juno", 0.3], ["orla", -0.15]]
+    },
+    {
+      "id": "dez",
+      "name": "Dez",
+      "room": "bedroom-south",
+      "note": "The opposite corner of the trait space from Mara on everything that matters. Plays until there is nothing left to enjoy and only then notices the state of himself. He thinks he and Mara get on. He is wrong, and the file is allowed to say so because the two directions are separate numbers.",
+      "traits": [["neat", 0.05], ["outgoing", 0.4], ["active", 0.35], ["playful", 0.95], ["nice", 0.6]],
+      "motives": [["hunger", 50], ["energy", 50], ["social", 50], ["fun", 50], ["hygiene", 50], ["comfort", 50]],
+      "relationships": [["mara", 0.1], ["juno", 0.25]]
+    },
+    {
+      "id": "juno",
+      "name": "Juno",
+      "room": "living-room",
+      "note": "The hub. Sociable above everything and genuinely pleasant, which in this engine is not decoration: `nice` is read off the *partner* when a conversation lands, so time spent with Juno is worth more to everyone else than time spent with anybody else. She eats at the table when there is company and reaches for the telephone when there is not.",
+      "traits": [["neat", 0.55], ["outgoing", 0.95], ["active", 0.55], ["playful", 0.55], ["nice", 0.95]],
+      "motives": [["hunger", 50], ["energy", 50], ["social", 50], ["fun", 50], ["hygiene", 50], ["comfort", 50]],
+      "relationships": [["dez", 0.35], ["mara", 0.35], ["orla", 0.3], ["wick", 0.2]]
+    },
+    {
+      "id": "wick",
+      "name": "Wick",
+      "room": "study",
+      "note": "Solitary, sedentary and sour: the lowest `outgoing` and the lowest `nice` in the house, starting three doorways from anywhere anybody else goes. He begins mildly against everyone, forgives slowest, and takes the most offence — so his isolation is partly circumstance and partly a thing he keeps doing to himself. If the social column ever flattens, he is the row to check.",
+      "traits": [["neat", 0.65], ["outgoing", 0.05], ["active", 0.15], ["playful", 0.25], ["nice", 0.1]],
+      "motives": [["hunger", 50], ["energy", 50], ["social", 50], ["fun", 50], ["hygiene", 50], ["comfort", 50]],
+      "relationships": [["dez", -0.25], ["juno", -0.15], ["mara", -0.3], ["orla", -0.25]]
+    },
+    {
+      "id": "orla",
+      "name": "Orla",
+      "room": "kitchen",
+      "note": "The most restless person in the house and middling on everything else, which is what a fifth person in a house with two beds is for. She and Mara want the same bathroom at the same hour, and the file starts them slightly against each other so the first collision has somewhere to go.",
+      "traits": [["neat", 0.35], ["outgoing", 0.5], ["active", 0.95], ["playful", 0.65], ["nice", 0.45]],
+      "motives": [["hunger", 50], ["energy", 50], ["social", 50], ["fun", 50], ["hygiene", 50], ["comfort", 50]],
+      "relationships": [["dez", 0.2], ["juno", 0.3], ["mara", -0.2]]
+    }
+  ]
+}

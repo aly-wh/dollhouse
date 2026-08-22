@@ -47,16 +47,17 @@ npm run typecheck # tsc --noEmit
 npm run demo      # run the demo house and print what happened
 ```
 
-The demo takes `--seed`, `--days`, `--world`, and
-`--format text|summary|timeline|json|audit`. `--format json` writes the raw event
-log to stdout and is byte-stable for a given seed, so two runs can be diffed;
-timing goes to stderr to keep it out of the diff.
+The demo takes `--seed`, `--days`, `--world`, `--cast`, and
+`--format text|summary|timeline|json|audit|behaviour`. `--format json` writes the
+raw event log to stdout and is byte-stable for a given seed, so two runs can be
+diffed; timing goes to stderr to keep it out of the diff.
 
 ```
 npm run demo -- --seed alpha --days 10 --format summary
 npm run demo -- --seed alpha --days 2 --format timeline --characters dez
 npm run demo -- --format audit
-npm run demo -- --world worlds/dollhouse.json --days 4
+npm run demo -- --days 30 --format behaviour
+npm run demo -- --world worlds/dollhouse.json --cast casts/dollhouse.json --days 4
 ```
 
 Characters choose what to do by arithmetic over motives — no model is called
@@ -96,6 +97,48 @@ Six days is still the descent from the starting motives, and a house that looks
 fine over six days can be losing ground on every axis at once for the next
 twenty-four. `npm run demo -- --days 30 --format behaviour` is the check, and
 `src/world/behaviour.test.ts` asserts it.
+
+## The cast
+
+The people are data too: `casts/dollhouse.json` holds five characters — traits,
+starting motives, the room each wakes up in, and how each one feels about the
+others. Adding a sixth is an entry in that file and nothing else. `--cast <path>`
+runs a different one.
+
+Two things in there are worth knowing before editing it.
+
+**Relationships are directed.** `mara -> dez` and `dez -> mara` are separate
+numbers, so the file can say she cannot stand him and he has not noticed. One
+number per pair cannot express being wrong about somebody, and being wrong about
+somebody is where most of the drama in a house comes from.
+
+**Everybody remembers.** A wasted journey leaves a mark on the object it was for
+and on whoever was already using it; a conversation that lands lifts both sides;
+one that somebody walks out of costs them. Opinions sit on -1..+1, multiply the
+score of anything they are about, and fade — so a grudge is a thing somebody gets
+over rather than a permanent property. The dynamics live in the `memory` block of
+the cast file, because how quickly somebody takes offence is as much a
+personality as how much they mind being dirty. `"memory": null` gives you
+characters with no memory at all, which is the engine as it stood before this
+existed and is the control every memory test is written against.
+
+### How to tell whether personality is working
+
+`npm run demo -- --days 30 --format behaviour` prints the table, and the table
+has to be read the right way round:
+
+- **Time spent on a motive is not the signal.** At steady state it is decay
+  divided by supply, with no weight anywhere in it, so two characters who are
+  both keeping up wash for the same number of hours however differently they feel
+  about it. **Roughly equal time is the correct answer.** A wide spread there is
+  as likely to mean somebody has stopped keeping up. This has now caught four
+  people, and there is a test asserting hygiene time stays roughly equal
+  precisely so the next person to "fix" the missing signal argues with a red one.
+- **Level is the signal.** What state each character *maintains*: the spreads in
+  the top block of the table.
+- **Source mix is the signal.** Which of the competing options they pick: the
+  middle block. That is why every motive needs two sources with different
+  side-effects.
 
 ## Contributing notes
 

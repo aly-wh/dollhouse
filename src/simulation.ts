@@ -55,6 +55,16 @@ import {
   type SimEvent,
 } from './events';
 import {
+  DEFAULT_MEMORY,
+  Memory,
+  charmScale,
+  grievanceScale,
+  resolveMemoryConfig,
+  type MemoryAbout,
+  type MemoryCause,
+  type MemoryConfig,
+} from './memory';
+import {
   DEFAULT_DECAY_PER_HOUR,
   MOTIVE_IDS,
   clampMotive,
@@ -136,6 +146,17 @@ export interface CharacterSpec {
   /** Escape hatch that bypasses the trait mapping. Traits are the intended dial. */
   readonly motiveWeights?: PartialMotiveVector;
   readonly roomId?: string;
+  /**
+   * How this character feels about the others at the start, on -1..+1.
+   *
+   * Pairs rather than an object, for the reason given at the top of
+   * `src/world/config.ts`: nothing the engine reads may depend on an object's
+   * key order, and a misspelt housemate must be an error rather than a bond
+   * silently set to zero. Asymmetric on purpose — A may think well of B while B
+   * cannot stand A, and a house where that is inexpressible has no room in it
+   * for anybody being wrong about anybody.
+   */
+  readonly relationships?: readonly (readonly [string, number])[];
 }
 
 export interface SimulationConfig {
@@ -167,6 +188,12 @@ export interface SimulationConfig {
   readonly socialInteraction?: Interaction | null;
   /** Per-hour cost of walking. Defaults to `DEFAULT_TRAVEL_EFFECTS`. */
   readonly travelEffects?: PartialMotiveVector;
+  /**
+   * How experience feeds back into choice. `null` gives characters no memory at
+   * all, which is the engine as it stood before #6 and is the control the memory
+   * tests are written against.
+   */
+  readonly memory?: Partial<MemoryConfig> | null;
 }
 
 interface ResolvedOptions {
@@ -222,6 +249,11 @@ export interface CharacterState {
   /** Where they are standing. Changes only on arrival, never mid-walk. */
   roomId: string | undefined;
   readonly rng: Rng;
+  /**
+   * What has happened to them, and what they now think of the objects and the
+   * people it happened with. Null when the run was configured without memory.
+   */
+  readonly memory: Memory | null;
   motives: MotiveVector;
   current: RunningAction | null;
   /** Simulated hours spent per action label, `idle` included. */
@@ -285,6 +317,7 @@ export class Simulation {
   private readonly options: ResolvedOptions;
   private readonly socialInteraction: Interaction | null;
   private readonly travelEffects: PartialMotiveVector;
+  private readonly memoryConfig: MemoryConfig | null;
 
   private tickIndex = 0;
   private minutes: number;
@@ -310,6 +343,8 @@ export class Simulation {
         ? DEFAULT_SOCIAL_INTERACTION
         : config.socialInteraction;
     this.travelEffects = config.travelEffects ?? DEFAULT_TRAVEL_EFFECTS;
+    this.memoryConfig =
+      config.memory === null ? null : resolveMemoryConfig(config.memory ?? DEFAULT_MEMORY);
 
     this.options = {
       startMinutes: config.startMinutes ?? 8 * 60,
@@ -331,6 +366,18 @@ export class Simulation {
     for (const spec of config.characters) {
       if (ids.has(spec.id)) throw new Error(`duplicate character id: ${spec.id}`);
       ids.add(spec.id);
+    }
+
+    // A bond aimed at nobody is silent: it sits in the map, never matches a
+    // partner, and presents as a character who is simply less sociable than the
+    // file says. Cheap to refuse, expensive to find by watching.
+    for (const spec of config.characters) {
+      for (const [other] of spec.relationships ?? []) {
+        if (other === spec.id) throw new Error(`${spec.id} has a relationship with themselves`);
+        if (!ids.has(other)) {
+          throw new Error(`${spec.id} has a relationship with an unknown character: ${other}`);
+        }
+      }
     }
 
     // Occupancy is keyed on advertiser id plus interaction id. Two advertisers
@@ -400,6 +447,10 @@ export class Simulation {
       // Derived from the seed and the character's id, never from draw order, so
       // adding a character to the house cannot change what the others do.
       rng: createRng(`${this.seed}::character::${spec.id}`),
+      memory:
+        this.memoryConfig === null
+          ? null
+          : new Memory(this.memoryConfig, traits, spec.relationships ?? []),
       motives: mapMotives(motiveVector(50, spec.motives), clampMotive),
       current: null,
       hoursByLabel: new Map(),
@@ -521,6 +572,77 @@ export class Simulation {
 
     bump(character.hoursByLabel, running ? running.interaction.label : IDLE_LABEL, hours);
     if (running) running.hoursRemaining -= hours;
+
+    // Forgetting is time passing, so it belongs in the phase where time passes,
+    // and it happens for everybody whether or not anything happened to them.
+    character.memory?.fade(hours);
+  }
+
+  // ---- memory --------------------------------------------------------------
+
+  /**
+   * What this character's history does to the score of this offer.
+   *
+   * One multiplier, applied everywhere an offer is priced, so that memory can
+   * never be the reason two code paths disagree about what something is worth.
+   * A conversation is priced by the bond with the partner; everything else by
+   * the impression of the object.
+   */
+  private affinity(
+    character: CharacterState,
+    advertiserId: string,
+    partnerId: string | null,
+  ): number {
+    const memory = character.memory;
+    if (!memory) return 1;
+    return partnerId !== null
+      ? memory.personMultiplier(partnerId)
+      : memory.objectMultiplier(advertiserId);
+  }
+
+  /**
+   * Write a memory and, if it moved far enough to be worth saying, log it.
+   *
+   * Every caller is somewhere the engine was already emitting an event, so
+   * memory adds no new decision points and no new ordering — only a consequence
+   * to things that were already happening.
+   */
+  private remember(
+    character: CharacterState,
+    about: MemoryAbout,
+    targetId: string,
+    delta: number,
+    cause: MemoryCause,
+  ): void {
+    const memory = character.memory;
+    if (!memory || delta === 0) return;
+    // The four causes that are things happening *to* somebody are always
+    // logged; the two that are reinforcement wait until they have moved
+    // something. See `MEMORY_LOG_STEP`.
+    const notable = cause !== 'worked' && cause !== 'talked';
+    const { value, report } = memory.write(about, targetId, delta, notable);
+    if (!report) return;
+    this.events.push({
+      kind: 'remembered',
+      ...this.timing(),
+      characterId: character.id,
+      about,
+      targetId,
+      cause,
+      delta: round2(delta),
+      value: round2(value),
+    });
+  }
+
+  /** Whoever is currently using this offer. Sorted order, so blame is stable. */
+  private occupantsOf(key: string): readonly CharacterState[] {
+    const holders: CharacterState[] = [];
+    for (const other of this.characters) {
+      const running = other.current;
+      if (!running || running.travel !== null) continue;
+      if (occupancyKey(running.advertiserId, running.interaction.id) === key) holders.push(other);
+    }
+    return holders;
   }
 
   // ---- phase 2 -------------------------------------------------------------
@@ -552,16 +674,23 @@ export class Simulation {
   }
 
   private continuationScore(character: CharacterState, running: RunningAction): number {
-    return scoreInteraction({
-      motives: character.motives,
-      weights: character.weights,
-      interaction: running.interaction,
-      config: this.scoring,
-      // No travel term: the character is already there. Which is precisely why
-      // finishing something usually beats restarting it somewhere else.
-      travelHours: 0,
-      hours: Math.max(running.hoursRemaining, 0),
-    }).score;
+    return (
+      scoreInteraction({
+        motives: character.motives,
+        weights: character.weights,
+        interaction: running.interaction,
+        config: this.scoring,
+        // No travel term: the character is already there. Which is precisely why
+        // finishing something usually beats restarting it somewhere else.
+        travelHours: 0,
+        hours: Math.max(running.hoursRemaining, 0),
+      }).score *
+      // The same multiplier the offer was chosen under. Leaving memory out here
+      // would price staying and starting differently, and a character who likes
+      // an object would then abandon it on exactly the terms of one who does
+      // not — which is the sort of asymmetry that reads as a mood swing.
+      this.affinity(character, running.advertiserId, running.partnerId)
+    );
   }
 
   private endAction(character: CharacterState, reason: ActionEndReason): void {
@@ -599,6 +728,62 @@ export class Simulation {
         this.endAction(partner, 'partner_left');
       }
     }
+
+    // After the cascade, so the log reads in the order it happened: both sides
+    // stop talking, and only then does one of them mind.
+    this.rememberEnding(character, running, reason);
+  }
+
+  /**
+   * What finishing something leaves behind.
+   *
+   * Deliberately narrow. Only two things write memory here — an object that did
+   * what it was for, and a conversation, in whichever direction it went. Being
+   * pulled off a meal by exhaustion is not the stove's fault and does not become
+   * a grudge against the stove; the engine already models that as an interrupt
+   * and adding an opinion to it would make every busy day read as a bad mood.
+   */
+  private rememberEnding(
+    character: CharacterState,
+    running: RunningAction,
+    reason: ActionEndReason,
+  ): void {
+    const config = this.memoryConfig;
+    // `partner_left` is the far side of a cascade that has already been
+    // accounted for by the side that caused it. Writing here as well would
+    // charge one conversation twice.
+    if (!config || running.travel !== null || reason === 'partner_left') return;
+
+    const worked = reason === 'finished' || reason === 'satisfied';
+
+    if (running.partnerId === null) {
+      // "Satisfied" is the engine's word for an action stopping because it had
+      // done its job — waking up rested. From the character's side that is the
+      // object working, not the object failing.
+      if (worked) this.remember(character, 'object', running.advertiserId, config.worked, 'worked');
+      return;
+    }
+
+    const partner = this.byId.get(running.partnerId);
+    if (!partner) return;
+
+    if (worked) {
+      // Each side is credited by how pleasant the *other* is to be around, which
+      // is the only place in the engine where one character's trait reaches into
+      // another's model of the world. It is what makes `nice` a fact about a
+      // person rather than a preference of the person doing the liking.
+      this.remember(character, 'person', partner.id, config.talked * charmScale(partner.traits), 'talked');
+      this.remember(partner, 'person', character.id, config.talked * charmScale(character.traits), 'talked');
+      return;
+    }
+
+    this.remember(
+      partner,
+      'person',
+      character.id,
+      config.walkedOut * grievanceScale(partner.traits),
+      'walked_out',
+    );
   }
 
   // ---- phase 3 -------------------------------------------------------------
@@ -699,13 +884,19 @@ export class Simulation {
         config: this.scoring,
         travelHours: candidate.travelHours,
       });
+      // Memory is applied before the gate, deliberately. A grudge is allowed to
+      // push a marginal option under the do-nothing floor — "I am not walking up
+      // there again for that" is a decision people make — while an option that
+      // was worth taking anyway survives being disliked.
+      const remembered =
+        breakdown.score * this.affinity(character, candidate.advertiserId, candidate.partnerId);
       // The gate is applied to the deterministic score, before any dice are
       // rolled. Anything not worth doing is not worth rolling for.
-      if (breakdown.score < this.options.minimumScore) continue;
+      if (remembered < this.options.minimumScore) continue;
 
       // Drawn for every surviving candidate, in canonical key order, so the
       // stream advances identically on every replay.
-      const score = applyJitter(breakdown.score, this.scoring, character.rng.next());
+      const score = applyJitter(remembered, this.scoring, character.rng.next());
       // Strict `>` keeps the first candidate in key order on an exact tie.
       if (best === null || score > best.score) {
         best = { ...candidate, score };
@@ -750,7 +941,7 @@ export class Simulation {
         if (partner.current !== null) continue;
         // And they get a say: a partner for whom talking scores negative — worn
         // out, filthy, starving — is not offered up.
-        if (!this.partnerWilling(partner, social)) continue;
+        if (!this.partnerWilling(partner, character, social)) continue;
 
         const advertiser: Advertiser = {
           id: partner.id,
@@ -793,7 +984,11 @@ export class Simulation {
     }
   }
 
-  private partnerWilling(partner: CharacterState, social: Interaction): boolean {
+  private partnerWilling(
+    partner: CharacterState,
+    initiator: CharacterState,
+    social: Interaction,
+  ): boolean {
     // The partner is held to exactly the bar they would hold themselves to. A
     // lower bar here produces a miserable loop: A offers, B accepts, B abandons
     // it on the next tick because it was never worth their while, A offers
@@ -803,6 +998,12 @@ export class Simulation {
     // No jitter and no RNG draw: asking whether someone is up for a chat must
     // not disturb their random stream, or A's decisions would silently change
     // B's future.
+    //
+    // Priced through the partner's bond with whoever is asking, which is the
+    // one place memory can withhold something rather than merely rank it: a
+    // character who has been walked out on twice this week will decline. That
+    // is the intended cruelty — a house where nobody can be turned down has no
+    // grudges in it, only preferences.
     return (
       scoreInteraction({
         motives: partner.motives,
@@ -810,7 +1011,9 @@ export class Simulation {
         interaction: social,
         config: this.scoring,
         travelHours: 0,
-      }).score >= this.options.minimumScore
+      }).score *
+        this.affinity(partner, initiator.id, initiator.id) >=
+      this.options.minimumScore
     );
   }
 
@@ -1025,6 +1228,28 @@ export class Simulation {
       label: plan.label,
       reason,
     });
+
+    const config = this.memoryConfig;
+    if (!config) return;
+
+    // The wasted walk was already the one moment in a run where being further
+    // away costs somebody something. Now it is also the one moment that leaves a
+    // mark: an object that keeps being taken becomes an object you stop trying,
+    // and whoever kept taking it becomes somebody you mind.
+    this.remember(
+      character,
+      'object',
+      plan.advertiserId,
+      reason === 'occupied' ? config.occupied : config.unavailable,
+      reason,
+    );
+
+    if (reason !== 'occupied') return;
+    const grievance = config.snubbed * grievanceScale(character.traits);
+    for (const holder of this.occupantsOf(plan.key)) {
+      if (holder.id === character.id) continue;
+      this.remember(character, 'person', holder.id, grievance, 'snubbed');
+    }
   }
 
   /**
@@ -1080,6 +1305,9 @@ export class Simulation {
         action: character.current ? character.current.interaction.label : null,
         roomId: character.roomId ?? null,
         motives: roundMotives(character.motives),
+        bonds: (character.memory?.bondList() ?? []).map(
+          (entry) => [entry.id, round2(entry.value)] as const,
+        ),
       })),
     });
   }
