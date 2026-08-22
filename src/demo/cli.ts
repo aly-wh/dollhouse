@@ -37,6 +37,7 @@ import { DEFAULT_SOCIAL_INTERACTION } from '../simulation';
 import { House } from '../world/house';
 import { DEFAULT_WORLD_PATH, loadWorldFile } from '../world/load';
 import { formatAudit, type AuditableOffer } from '../world/audit';
+import { MOTIVE_IDS, type MotiveId, type PartialMotiveVector } from '../motives';
 import { WorldConfigError } from '../world/config';
 import { DEMO_CAST } from './cast';
 
@@ -182,6 +183,24 @@ function auditableOffers(house: House): AuditableOffer[] {
   return offers;
 }
 
+/**
+ * Which labels answer which motive, for the mix table.
+ *
+ * Only positive effects count: the television costs energy, which does not make
+ * it one of the ways a character rests.
+ */
+function motiveSources(house: House): { label: string; motive: MotiveId }[] {
+  const rows: { label: string; motive: MotiveId }[] = [];
+  const add = (interaction: { label: string; effects: PartialMotiveVector }): void => {
+    for (const motive of MOTIVE_IDS) {
+      if ((interaction.effects[motive] ?? 0) > 0) rows.push({ label: interaction.label, motive });
+    }
+  };
+  for (const offer of house.allOffers()) add(offer.interaction);
+  add(DEFAULT_SOCIAL_INTERACTION);
+  return rows;
+}
+
 function render(result: SimulationResult, options: Options): string {
   const timeline = (): string =>
     formatTimeline(result, {
@@ -256,7 +275,7 @@ function main(): void {
     });
     const offered = house.allOffers().map((offer) => offer.interaction.label);
     offered.push(DEFAULT_SOCIAL_INTERACTION.label);
-    process.stdout.write(`${formatComparison(compareRuns(runs, offered))}\n`);
+    process.stdout.write(`${formatComparison(compareRuns(runs, offered, motiveSources(house)))}\n`);
     return;
   }
 

@@ -84,11 +84,18 @@ Three things about it are load-bearing, and all three were learned the hard way:
   runs, so an object paying twelve comfort an hour in a house where comfort falls
   nine an hour nets three. The audit reports those too.
 
-Things run out. There is enough hot water for three showers and a bath before the
-tank needs an hour to recover; the fridge holds what somebody last cooked, and
-cooking is a seventy-five-minute chore that leaves the cook dirtier than they
-started and the leftovers available to anybody. Who cooks, who raids, and who
-waits is most of what there is to watch.
+Things run out. The tank holds two showers and a bath, and refills slowly enough
+that whoever takes the bath is a decision the rest of the house pays for; the
+fridge holds only what somebody last cooked, and cooking is a seventy-five-minute
+chore you cannot walk away from, which leaves the cook dirtier than they started
+and the leftovers available to anybody. Who cooks, who raids, and who ends up at
+the basin is most of what there is to watch.
+
+The supply side is calibrated against a **thirty-day** run, not a six-day one.
+Six days is still the descent from the starting motives, and a house that looks
+fine over six days can be losing ground on every axis at once for the next
+twenty-four. `npm run demo -- --days 30 --format behaviour` is the check, and
+`src/world/behaviour.test.ts` asserts it.
 
 ## Contributing notes
 

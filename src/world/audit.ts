@@ -44,10 +44,24 @@ import type { ResourceAmount } from './config';
 
 /**
  * Per-hour gain at or above which an interaction is a *strong* source of a
- * motive rather than a side benefit. The shower's +4 energy is not a way to
- * rest; the coffee pot's +45 is.
+ * motive rather than a side benefit. The shower's small energy bump is not a way
+ * to rest; the coffee pot is.
+ *
+ * An absolute number, and it therefore has to move with the economy it measures.
+ * It was 40 when the house's supply was calibrated against a six-day run; when
+ * that turned out to be the descent rather than the equilibrium and the whole
+ * supply side was rescaled by about 1.7 to close a thirty-day budget, this moved
+ * with it. Leaving it at 40 would have reclassified half the house as generalists
+ * without a single object changing what it was for.
+ *
+ * The alternative — defining "strong" relative to each interaction's own largest
+ * effect — was tried and is worse: at 60% of the largest effect it flags the
+ * dining table, whose whole design is that it feeds you a bit and pays company,
+ * and which beats no specialist at either. What this rule is for is the object
+ * that is a *primary* way to satisfy two motives at once, and primary is an
+ * absolute claim.
  */
-export const STRONG_SOURCE_PER_HOUR = 40;
+export const STRONG_SOURCE_PER_HOUR = 68;
 
 export interface AuditableOffer {
   readonly advertiserId: string;

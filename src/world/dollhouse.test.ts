@@ -11,12 +11,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { MOTIVE_IDS } from '../motives';
+import { DEFAULT_DECAY_PER_HOUR, MOTIVE_IDS } from '../motives';
 import { DEFAULT_SOCIAL_INTERACTION } from '../simulation';
 import {
   auditMotiveSources,
   emptyPromises,
   generalists,
+  PROMISE_MARGIN,
   STRONG_SOURCE_PER_HOUR,
   type AuditableOffer,
 } from './audit';
@@ -148,11 +149,16 @@ describe('no object promises more than it can deliver', () => {
   });
 
   it('counts a suspended decay rate as suspended', () => {
-    // Sleep pays five comfort an hour and stops comfort decaying at all. Five an
-    // hour against nothing is five an hour, and condemning it would be wrong.
-    const sleeping = houseOffers.find((offer) => offer.interaction.id === 'sleep');
-    expect(sleeping?.interaction.effects.comfort).toBeLessThan(9);
-    expect(emptyPromises([sleeping!])).toEqual([]);
+    // Sleep pays a little comfort an hour and stops comfort decaying at all. A
+    // little against nothing is a little, and condemning it would be wrong — so
+    // this checks the effect is small enough that it *would* be condemned if the
+    // suspension were ignored, and then that it is not.
+    const sleeping = houseOffers.find((offer) => offer.interaction.id === 'sleep')!;
+    const comfort = sleeping.interaction.effects.comfort ?? 0;
+    expect(comfort).toBeGreaterThan(0);
+    expect(comfort).toBeLessThanOrEqual(DEFAULT_DECAY_PER_HOUR.comfort * PROMISE_MARGIN);
+    expect(sleeping.interaction.decayMultipliers?.comfort).toBe(0);
+    expect(emptyPromises([sleeping])).toEqual([]);
   });
 });
 

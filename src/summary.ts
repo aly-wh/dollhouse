@@ -188,12 +188,46 @@ export interface MotiveComparison {
   readonly spread: number;
 }
 
+/** One source of one motive, as a share of the time that character spent on it. */
+export interface SourceShare {
+  readonly label: string;
+  readonly fractions: readonly number[];
+}
+
+export interface MotiveMix {
+  readonly motive: MotiveId;
+  readonly sources: readonly SourceShare[];
+  /**
+   * Widest gap between any two characters on any one source, in percentage
+   * points. This is the differentiation number that means something.
+   */
+  readonly spread: number;
+}
+
 export interface Comparison {
   readonly characterIds: readonly string[];
   readonly runs: number;
   /** Descending by ratio: the things that separate people most, first. */
   readonly labels: readonly LabelComparison[];
   readonly motives: readonly MotiveComparison[];
+  /**
+   * Which source each character reached for, per motive.
+   *
+   * The one to read. Total *time* on a motive is not a personality signal and
+   * treating it as one is how a house nobody could live in came to look like a
+   * success: at steady state, hours spent on a motive are decay over supply for
+   * everybody, with no weight anywhere in it, so two characters who are both
+   * keeping up will wash for the same number of hours however differently they
+   * feel about washing. Equal time is the *correct* answer.
+   *
+   * Time on a motive only diverges when somebody has stopped keeping up — which
+   * is to say, a wide spread here is as likely to be evidence that the house is
+   * failing as evidence that it is working.
+   *
+   * What a weight actually buys is the level a motive is held at, and which of
+   * its sources gets picked. Those are `motives` and this.
+   */
+  readonly mix: readonly MotiveMix[];
   /** Labels nothing in the house ever used. Dead content, and a design smell. */
   readonly unused: readonly string[];
 }
@@ -227,9 +261,17 @@ export function compareRuns(
    * really being offered — and it is invisible from the runs alone.
    */
   offered: readonly string[] = [],
+  /**
+   * Which labels pay which motive, so the mix can be worked out.
+   *
+   * A run records labels and hours; it has no idea that "wash at the basin" and
+   * "take a shower" are two answers to the same question. The world knows, so
+   * the world has to say.
+   */
+  sources: readonly { readonly label: string; readonly motive: MotiveId }[] = [],
 ): Comparison {
   const first = runs[0];
-  if (!first) return { characterIds: [], runs: 0, labels: [], motives: [], unused: [] };
+  if (!first) return { characterIds: [], runs: 0, labels: [], motives: [], mix: [], unused: [] };
 
   const characterIds = first.characters.map((character) => character.id);
   const shares = new Map<string, number[]>();
@@ -280,7 +322,33 @@ export function compareRuns(
     return { motive, means: row, spread: Math.max(...row) - Math.min(...row) };
   });
 
-  return { characterIds, runs: runs.length, labels, motives, unused };
+  const mix: MotiveMix[] = [];
+  for (const motive of MOTIVE_IDS) {
+    const forMotive = sources.filter((entry) => entry.motive === motive);
+    if (forMotive.length < 2) continue;
+
+    const totals = characterIds.map((_, index) =>
+      forMotive.reduce((sum, entry) => sum + (shares.get(entry.label)?.[index] ?? 0), 0),
+    );
+    const rows: SourceShare[] = forMotive.map((entry) => ({
+      label: entry.label,
+      fractions: characterIds.map((_, index) => {
+        const total = totals[index] ?? 0;
+        return total > 0 ? (shares.get(entry.label)?.[index] ?? 0) / total : 0;
+      }),
+    }));
+
+    let spread = 0;
+    for (const row of rows) {
+      spread = Math.max(spread, Math.max(...row.fractions) - Math.min(...row.fractions));
+    }
+    rows.sort((left, right) =>
+      left.label < right.label ? -1 : left.label > right.label ? 1 : 0,
+    );
+    mix.push({ motive, sources: rows, spread });
+  }
+
+  return { characterIds, runs: runs.length, labels, motives, mix, unused };
 }
 
 export function formatComparison(comparison: Comparison): string {
@@ -298,8 +366,28 @@ export function formatComparison(comparison: Comparison): string {
     );
   }
 
+  if (comparison.mix.length > 0) {
+    lines.push('');
+    lines.push('which source, as a share of the time that character spent on that motive');
+    lines.push('(the differentiation number that means something — see `Comparison.mix`)');
+    for (const entry of comparison.mix) {
+      lines.push('');
+      lines.push(
+        `  ${pad(entry.motive, 20)}${columns.join('')}   widest gap ` +
+          `${(entry.spread * 100).toFixed(0)}pp`,
+      );
+      for (const source of entry.sources) {
+        lines.push(
+          `    ${pad(source.label, 18)}` +
+            source.fractions.map((f) => padStart(`${(f * 100).toFixed(0)}%`, 8)).join(''),
+        );
+      }
+    }
+  }
+
   lines.push('');
   lines.push(`${pad('share of life', 22)}${columns.join('')}      ratio`);
+  lines.push('(time on a motive converges on decay over supply for everybody; read the mix above)');
   for (const entry of comparison.labels) {
     lines.push(
       `${pad(entry.label, 22)}` +
