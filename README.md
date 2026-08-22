@@ -27,7 +27,16 @@ unproven part, so it's the only part the first build tests.
 
 ## Running the simulation engine
 
-Node 20+, then `npm install`.
+Node **20.19+**, **22.12+**, or **24+** — then `npm install`.
+
+Check `node -v` first, and `nvm use 22` if it is older — the failure mode below
+the floor is not a clean error message.
+
+The floor comes from the dependency tree, not from anything in `src/`: seventeen
+lockfile packages require `^20.19.0 || >=22.12.0`, and below Node 20.12 `npm ci`
+succeeds and `npm test` then dies with a missing `styleText` export nowhere near
+the real cause. CI pins both floors, so the number above is exercised rather than
+asserted — keep it in step with `engines` in `package.json`.
 
 ```
 npm test          # unit tests
