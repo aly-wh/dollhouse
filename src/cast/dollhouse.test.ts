@@ -378,9 +378,10 @@ describe('memory in the shipped house', () => {
     // it. If this came out equal, memory would be decoration.
     //
     // Measured on levels rather than on the aggregate spreads, because the
-    // spreads are dominated by the cast: turning memory off moves them by a
-    // point or two, while it moves *individual* levels by five or ten. That is
-    // the honest shape of the effect and it is worth asserting the honest one.
+    // spreads are dominated by the cast: turning memory off moves most of them
+    // by a point or two, while it moves individual levels by up to ten and about
+    // a third of them by more than two. That is the honest shape of the effect
+    // and it is worth asserting the honest one rather than the flattering one.
     const meanIn = (source: Comparison, motive: MotiveId, id: string): number =>
       source.motives.find((entry) => entry.motive === motive)!.means[
         source.characterIds.indexOf(id)
