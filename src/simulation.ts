@@ -999,11 +999,18 @@ export class Simulation {
     // not disturb their random stream, or A's decisions would silently change
     // B's future.
     //
-    // Priced through the partner's bond with whoever is asking, which is the
-    // one place memory can withhold something rather than merely rank it: a
-    // character who has been walked out on twice this week will decline. That
-    // is the intended cruelty — a house where nobody can be turned down has no
+    // Priced through the partner's bond with whoever is asking, which is the one
+    // place memory can withhold something rather than merely rank it: somebody
+    // can be turned down, and a house where nobody can be turned down has no
     // grudges in it, only preferences.
+    //
+    // It is a narrow door on purpose. At the shipped `bondInfluence` a deep
+    // grudge scales the offer by about 0.8, so it only refuses a conversation
+    // that was already close to not being worth having — which is what makes it
+    // a bad mood rather than a boycott. Widening that door is the loop measured
+    // in the note on `MemoryConfig.bondInfluence`: the refused character does
+    // not do without company, they walk somewhere else to get it, and the house
+    // pays for the walking.
     return (
       scoreInteraction({
         motives: partner.motives,
