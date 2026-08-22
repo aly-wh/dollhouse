@@ -98,9 +98,7 @@ export interface MemoryConfig {
    * Deliberately **lower** than `impressionInfluence`, which looks backwards
    * until you see what it does over ninety days. A bond does not merely rank
    * conversations, it gates them: `partnerWilling` prices the offer through the
-   * partner's bond, so a low enough opinion is a refusal. That closes a loop —
-   * fewer conversations, lower social, worse temper, fewer conversations — and
-   * the loop has real gain.
+   * partner's bond, so a low enough opinion is a refusal.
    *
    * Measured on the shipped house, sixteen seeds, mean motive over days 70-90,
    * with everything else held still:
@@ -112,11 +110,25 @@ export interface MemoryConfig {
    *   both, bonds at 0.30                    +19.0   (sd  3.5, worst seed +11)
    *
    * Object memory is nearly free. Bonds at 0.55 cost the house half its
-   * equilibrium and tripled the spread between seeds, and the failure was not
-   * dramatic — it was five people who had all stopped speaking to each other,
-   * which is the cast flattening, not the cast working. At 0.30 the house is as
-   * steady as it is with no memory at all and the social level spread across the
-   * cast is still 76 against 70 with memory off.
+   * equilibrium and tripled the spread between seeds.
+   *
+   * **The reason is not that people stop talking**, which is what it looks like
+   * and what the first draft of this comment claimed. Conversations per run are
+   * flat across every setting — 525 against 526. What changes is *who has them
+   * and from where*: a refused character does not go without company, they go
+   * and find it somewhere else. `talk together`, which is free and needs no
+   * walk, falls (Wick 7.2% of his life to 5.0%) and `call a friend`, which is a
+   * telephone in a draughty hall a walk away, rises. Wasted journeys go up 21%,
+   * from 805 a run to 973, and walking rises for everybody — Wick to a fifth of
+   * his entire life.
+   *
+   * So the house pays the difference in **travel**, and it comes out of all six
+   * motives roughly evenly rather than out of `social` alone. That distinction
+   * matters for anyone tuning this later: the thing to watch when raising it is
+   * the walk column, not the conversation count.
+   *
+   * At 0.30 the house is as steady as it is with no memory at all and the social
+   * level spread across the cast is still 76 against 70 with memory off.
    */
   readonly bondInfluence: number;
   readonly bondFadeHours: number;

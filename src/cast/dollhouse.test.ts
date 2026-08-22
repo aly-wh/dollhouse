@@ -44,7 +44,21 @@ const world = loadWorldFile();
 const cast = loadCastFile();
 const characters = toCharacterSpecs(cast);
 
-const SEEDS = ['a', 'b', 'c'];
+/**
+ * Six, not three.
+ *
+ * Three was not enough to say anything about the equilibrium, and finding that
+ * out is most of what the ninety-day work on this issue produced. Per-seed
+ * variation in the settled mean is wide — sixteen seeds run from +11 to +25 —
+ * so a three-seed average of the day 70-90 level moves by several points
+ * depending on which three, and a threshold set from a sixteen-seed measurement
+ * and applied to a three-seed estimate guards nothing. Six roughly halves that
+ * and costs about a second.
+ *
+ * It is still not enough to *discriminate a tuning choice*; see the note on the
+ * equilibrium test below, which says so rather than implying otherwise.
+ */
+const SEEDS = ['a', 'b', 'c', 'd', 'e', 'f'];
 /**
  * Ninety, not thirty.
  *
@@ -87,7 +101,9 @@ function run(seed: string, memory: null | undefined = undefined): SimulationResu
     world: house,
     characters,
     days: DAYS,
-    snapshotEveryTicks: 4,
+    // Two-hourly. Ninety days is plenty of samples for an equilibrium and this
+    // keeps twelve runs of it off the wrong side of a second.
+    snapshotEveryTicks: 8,
     scoring: house.scoringOverrides(),
     memory: memory === null ? null : cast.memory,
   });
@@ -103,6 +119,18 @@ const comparison: Comparison = compareRuns(
   results.map(summariseRun),
   offered,
   motiveSources(reference),
+);
+
+/**
+ * The same cast, the same house, the same seeds, with no memory of any of it.
+ *
+ * Built once at module scope because it is twelve ninety-day runs between the
+ * two sets and the tests that read it would otherwise each pay for their own.
+ */
+const forgetful: Comparison = compareRuns(
+  SEEDS.map((seed) => summariseRun(run(seed, null))),
+  offered,
+  motiveSources(new House(world)),
 );
 
 const mean = (values: readonly number[]): number =>
@@ -239,13 +267,24 @@ describe('the house still supports life with this cast in it', () => {
     ).toBeLessThan(6);
   });
 
-  it('settles near where the house settles without them, not half way down', () => {
-    // The number that catches a slow drain. The house on its own holds about
-    // +22 out to day 90; this cast holds about +19, and the three points are
-    // the price of five people who are actually different. A regression here
-    // means somebody has closed a feedback loop — see the note on
-    // `MemoryConfig.bondInfluence` for the one that was already found and shut.
-    expect(mean(late), 'day 70-90 equilibrium').toBeGreaterThan(12);
+  it('settles somewhere survivable rather than half way to the floor', () => {
+    // Sixteen seeds put this at +19.0 as shipped and +19.9 with memory off,
+    // against +23.8 for the house on its own with the placeholder cast. The four
+    // points are the price of five people who are actually different, and they
+    // are a finding for the PM/PO rather than something to tune away.
+    //
+    // **What this test cannot do**, said plainly because the alternative is a
+    // threshold that looks like a guard and is not: it does not discriminate a
+    // tuning choice. `bondInfluence` at 0.55 costs nine points of equilibrium
+    // over sixteen seeds — and passes this test at six, because the per-seed
+    // spread is wider than the effect. Nothing cheap separates them either;
+    // wasted journeys and walk share were both tried and both overlap at this
+    // sample size. Reproducing that difference honestly costs sixteen seeds and
+    // about three seconds a configuration, which is why it lives as a recorded
+    // measurement in the doc comment on `MemoryConfig.bondInfluence` and not
+    // here. What this catches is the house falling over, which is the thing a
+    // suite should catch.
+    expect(mean(late), 'day 70-90 equilibrium').toBeGreaterThan(10);
   });
 
   it('never leaves anybody with everything lost at once', () => {
@@ -342,7 +381,6 @@ describe('memory in the shipped house', () => {
     // spreads are dominated by the cast: turning memory off moves them by a
     // point or two, while it moves *individual* levels by five or ten. That is
     // the honest shape of the effect and it is worth asserting the honest one.
-    const forgetful = compareRuns(SEEDS.map((seed) => summariseRun(run(seed, null))));
     const meanIn = (source: Comparison, motive: MotiveId, id: string): number =>
       source.motives.find((entry) => entry.motive === motive)!.means[
         source.characterIds.indexOf(id)
@@ -356,7 +394,8 @@ describe('memory in the shipped house', () => {
         }
       }
     }
-    expect(moved, 'character/motive levels that moved by more than 2 points').toBeGreaterThan(8);
+    // 11 of 30 at six seeds, 14 at sixteen. The bar is set below both.
+    expect(moved, 'character/motive levels that moved by more than 2 points').toBeGreaterThan(6);
   });
 
   it('makes the cast more different from each other, not less', () => {
@@ -368,7 +407,6 @@ describe('memory in the shipped house', () => {
     // forgives slowest, so being turned down compounds instead of averaging
     // out, and the gap between the sociable end of the house and the solitary
     // end opens further than the weights alone would open it.
-    const forgetful = compareRuns(SEEDS.map((seed) => summariseRun(run(seed, null))));
     const socialSpread = (source: Comparison): number =>
       source.motives.find((entry) => entry.motive === 'social')!.spread;
     const socialOf = (source: Comparison, id: string): number =>
@@ -376,7 +414,9 @@ describe('memory in the shipped house', () => {
         source.characterIds.indexOf(id)
       ]!;
 
-    expect(socialSpread(comparison)).toBeGreaterThan(socialSpread(forgetful) + 5);
-    expect(socialOf(comparison, 'wick')).toBeLessThan(socialOf(forgetful, 'wick') - 5);
+    // Margins set from both sample sizes: the spread widens by 8 at six seeds
+    // and 6 at sixteen; Wick's level falls by 10.1 and 7.7 respectively.
+    expect(socialSpread(comparison)).toBeGreaterThan(socialSpread(forgetful) + 3);
+    expect(socialOf(comparison, 'wick')).toBeLessThan(socialOf(forgetful, 'wick') - 4);
   });
 });
