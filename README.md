@@ -122,6 +122,14 @@ personality as how much they mind being dirty. `"memory": null` gives you
 characters with no memory at all, which is the engine as it stood before this
 existed and is the control every memory test is written against.
 
+**With people in it, thirty days is not long enough.** The house on its own settles
+by day 20 and holds. Add five real personalities and memory and it is still
+descending at day 30 — sixteen seeds put the mean motive at +16 around day 20 and
++19 from day 50 onward, so a thirty-day window measures the tail of the transient
+and reports it as the equilibrium. That is the mistake #5's reviewer caught at six
+days, one order of magnitude up. `src/cast/dollhouse.test.ts` runs ninety days and
+compares days 40–60 with days 70–90.
+
 ### How to tell whether personality is working
 
 `npm run demo -- --days 30 --format behaviour` prints the table, and the table

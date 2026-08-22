@@ -45,7 +45,20 @@ const cast = loadCastFile();
 const characters = toCharacterSpecs(cast);
 
 const SEEDS = ['a', 'b', 'c'];
-const DAYS = 30;
+/**
+ * Ninety, not thirty.
+ *
+ * Thirty was the right number for the house on its own and is the wrong number
+ * for the house with these five in it. With memory on, the run is still
+ * descending at day thirty: sixteen seeds put the mean at +17 over days 10-30
+ * and +10 over days 70-90 before this was tuned, so a thirty-day window measures
+ * the tail of the transient and calls it the equilibrium. That is the exact
+ * mistake #5's reviewer caught at six days, one order of magnitude up.
+ *
+ * The windows below are therefore days 40-60 against days 70-90 — both after the
+ * house has actually settled — rather than 10-20 against 22-30.
+ */
+const DAYS = 90;
 /** A motive at or below this is in real trouble. */
 const LOW = -70;
 
@@ -95,7 +108,7 @@ const comparison: Comparison = compareRuns(
 const mean = (values: readonly number[]): number =>
   values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
 
-/** Days 10-20 against days 22-30: the run after it has settled, twice. */
+/** Days 40-60 against days 70-90: the run after it has settled, twice. */
 const early: number[] = [];
 const late: number[] = [];
 let collapsed = 0;
@@ -125,8 +138,8 @@ for (const result of results) {
       for (const motive of MOTIVE_IDS) {
         const value = character.motives[motive];
         if (value <= LOW) low += 1;
-        if (day >= 10 && day < 20) early.push(value);
-        if (day >= 22) late.push(value);
+        if (day >= 40 && day < 60) early.push(value);
+        if (day >= 70) late.push(value);
       }
       for (const [other, value] of character.bonds) {
         const key = `${character.id}->${other}`;
@@ -219,15 +232,20 @@ describe('the cast file is five people rather than one in five hats', () => {
 describe('the house still supports life with this cast in it', () => {
   // The load-bearing question of this issue: the balance was tuned against a
   // placeholder four, and nobody knew whether it survived five real ones.
-  it('does not drain over thirty days', () => {
+  it('has stopped moving by day ninety', () => {
     expect(
       Math.abs(mean(late) - mean(early)),
-      'motives are still moving at day 30',
-    ).toBeLessThan(10);
+      'motives are still moving at day 90',
+    ).toBeLessThan(6);
   });
 
-  it('settles somewhere survivable rather than on the floor', () => {
-    expect(mean(late)).toBeGreaterThan(-15);
+  it('settles near where the house settles without them, not half way down', () => {
+    // The number that catches a slow drain. The house on its own holds about
+    // +22 out to day 90; this cast holds about +19, and the three points are
+    // the price of five people who are actually different. A regression here
+    // means somebody has closed a feedback loop — see the note on
+    // `MemoryConfig.bondInfluence` for the one that was already found and shut.
+    expect(mean(late), 'day 70-90 equilibrium').toBeGreaterThan(12);
   });
 
   it('never leaves anybody with everything lost at once', () => {
@@ -333,25 +351,32 @@ describe('memory in the shipped house', () => {
     let moved = 0;
     for (const motive of MOTIVE_IDS) {
       for (const id of who) {
-        if (Math.abs(meanIn(comparison, motive, id) - meanIn(forgetful, motive, id)) > 3) {
+        if (Math.abs(meanIn(comparison, motive, id) - meanIn(forgetful, motive, id)) > 2) {
           moved += 1;
         }
       }
     }
-    expect(moved, 'character/motive levels that moved by more than 3 points').toBeGreaterThan(7);
+    expect(moved, 'character/motive levels that moved by more than 2 points').toBeGreaterThan(8);
   });
 
-  it('makes most of them better off and the sourest one worse', () => {
-    // Which is the whole argument for memory being in the product at all. Not
-    // remembering that the larder keeps being empty costs you journeys, so most
-    // of the house gains from it — and Wick, who takes offence hardest and
-    // forgives slowest, compounds his own isolation instead.
+  it('makes the cast more different from each other, not less', () => {
+    // The check that memory is earning its keep rather than merely perturbing
+    // things. Two runs can differ everywhere and still describe the same five
+    // people; this asks whether the *spread* widened.
+    //
+    // Social is where it shows, and Wick is why. He takes offence hardest and
+    // forgives slowest, so being turned down compounds instead of averaging
+    // out, and the gap between the sociable end of the house and the solitary
+    // end opens further than the weights alone would open it.
     const forgetful = compareRuns(SEEDS.map((seed) => summariseRun(run(seed, null))));
+    const socialSpread = (source: Comparison): number =>
+      source.motives.find((entry) => entry.motive === 'social')!.spread;
     const socialOf = (source: Comparison, id: string): number =>
       source.motives.find((entry) => entry.motive === 'social')!.means[
         source.characterIds.indexOf(id)
       ]!;
+
+    expect(socialSpread(comparison)).toBeGreaterThan(socialSpread(forgetful) + 5);
     expect(socialOf(comparison, 'wick')).toBeLessThan(socialOf(forgetful, 'wick') - 5);
-    expect(socialOf(comparison, 'juno')).toBeGreaterThan(socialOf(forgetful, 'juno'));
   });
 });

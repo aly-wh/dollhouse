@@ -5,11 +5,11 @@
   "note": "Five people, and nothing about them lives in code. Traits become the weights that multiply every score; relationships are opinions each of them holds about the others, and they are asymmetric on purpose. Adding a sixth person is an entry in `characters` and nothing else. Everyone starts on identical motives, which is a methodological choice rather than a lack of imagination: it means every difference in how their days go is attributable to traits, to relationships, to where they woke up and to their own seeded stream, and to nothing else. The format takes different starting motives happily.",
 
   "memory": {
-    "note": "How experience feeds back into choice. In the cast file rather than the world file because it is a property of the people, not the building: how fast somebody takes offence and how long they hold it is as much a personality as how much they mind being dirty.",
+    "note": "How experience feeds back into choice. In the cast file rather than the world file because it is a property of the people, not the building: how fast somebody takes offence and how long they hold it is as much a personality as how much they mind being dirty. `bondInfluence` is lower than `impressionInfluence` and that is not a typo — a bond gates conversations as well as ranking them, which closes a feedback loop that at 0.55 cost this house half its ninety-day equilibrium and ended with five people who had stopped speaking to each other. The measurements are in the doc comment on `MemoryConfig.bondInfluence`.",
 
     "impressionInfluence": 0.4,
     "impressionFadeHours": 36,
-    "bondInfluence": 0.55,
+    "bondInfluence": 0.3,
     "bondFadeHours": 132,
 
     "occupied": -0.3,

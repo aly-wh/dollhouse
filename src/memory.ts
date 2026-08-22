@@ -92,7 +92,32 @@ export interface MemoryConfig {
   readonly impressionInfluence: number;
   /** Hours for a full-strength impression to fade to nothing. */
   readonly impressionFadeHours: number;
-  /** The same, for how a character feels about a *person*. */
+  /**
+   * The same, for how a character feels about a *person*.
+   *
+   * Deliberately **lower** than `impressionInfluence`, which looks backwards
+   * until you see what it does over ninety days. A bond does not merely rank
+   * conversations, it gates them: `partnerWilling` prices the offer through the
+   * partner's bond, so a low enough opinion is a refusal. That closes a loop —
+   * fewer conversations, lower social, worse temper, fewer conversations — and
+   * the loop has real gain.
+   *
+   * Measured on the shipped house, sixteen seeds, mean motive over days 70-90,
+   * with everything else held still:
+   *
+   *   no memory at all                       +19.9   (sd  3.2, worst seed +13)
+   *   object impressions only                +18.8   (sd  3.4, worst seed +10)
+   *   bonds only, at 0.55                     -0.3   (sd 18.2, worst seed -30)
+   *   both, bonds at 0.55                    +10.0   (sd  9.5, worst seed  -8)
+   *   both, bonds at 0.30                    +19.0   (sd  3.5, worst seed +11)
+   *
+   * Object memory is nearly free. Bonds at 0.55 cost the house half its
+   * equilibrium and tripled the spread between seeds, and the failure was not
+   * dramatic — it was five people who had all stopped speaking to each other,
+   * which is the cast flattening, not the cast working. At 0.30 the house is as
+   * steady as it is with no memory at all and the social level spread across the
+   * cast is still 76 against 70 with memory off.
+   */
   readonly bondInfluence: number;
   readonly bondFadeHours: number;
 
@@ -122,7 +147,7 @@ export interface MemoryConfig {
 export const DEFAULT_MEMORY: MemoryConfig = {
   impressionInfluence: 0.4,
   impressionFadeHours: 40,
-  bondInfluence: 0.5,
+  bondInfluence: 0.3,
   bondFadeHours: 120,
   occupied: -0.3,
   unavailable: -0.22,
