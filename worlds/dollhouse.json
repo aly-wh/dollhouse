@@ -1,0 +1,302 @@
+{
+  "id": "dollhouse",
+  "name": "The Dollhouse",
+  "entryRoom": "hall",
+  "travel": { "hoursPerHop": 0.1, "discountPerHour": 2.5 },
+
+  "rooms": [
+    { "id": "hall", "name": "Hall", "exits": ["living-room", "kitchen", "study", "landing"] },
+    { "id": "kitchen", "name": "Kitchen", "exits": ["dining-room"] },
+    { "id": "dining-room", "name": "Dining room", "exits": ["living-room"] },
+    { "id": "living-room", "name": "Living room", "exits": [] },
+    { "id": "study", "name": "Study", "exits": [] },
+    { "id": "landing", "name": "Landing", "exits": ["bathroom", "bedroom-north", "bedroom-south"] },
+    { "id": "bathroom", "name": "Bathroom", "exits": [] },
+    { "id": "bedroom-north", "name": "North bedroom", "exits": [] },
+    { "id": "bedroom-south", "name": "South bedroom", "exits": [] }
+  ],
+
+  "resources": [
+    {
+      "id": "fridge-food",
+      "label": "food in the fridge",
+      "capacity": 8,
+      "initial": 8,
+      "regenPerHour": 0,
+      "note": "Does not refill on its own. Somebody has to cook, and cooking costs the cook."
+    },
+    {
+      "id": "pantry",
+      "label": "the pantry",
+      "capacity": 60,
+      "initial": 40,
+      "regenPerHour": 0.8,
+      "note": "A standing delivery, about fourteen units a day. Cooking and coffee draw on the same shelf."
+    },
+    {
+      "id": "hot-water",
+      "label": "hot water",
+      "capacity": 90,
+      "initial": 90,
+      "regenPerHour": 9,
+      "note": "One tank, and the house wants more hot water in a day than it makes. Three showers and a bath empty it; then it is the basin, or waiting."
+    }
+  ],
+
+  "objects": [
+    {
+      "id": "fridge",
+      "name": "the fridge",
+      "room": "kitchen",
+      "interactions": [
+        {
+          "id": "raid",
+          "label": "raid the fridge",
+          "durationHours": 0.5,
+          "effects": [["hunger", 120], ["comfort", -10]],
+          "consumes": [["fridge-food", 1]],
+          "tags": ["food"],
+          "note": "Fast, filling, and takes from a shelf nobody has refilled."
+        }
+      ]
+    },
+    {
+      "id": "stove",
+      "name": "the stove",
+      "room": "kitchen",
+      "interactions": [
+        {
+          "id": "cook",
+          "label": "cook a proper meal",
+          "durationHours": 1.25,
+          "effects": [["hunger", 90], ["hygiene", -20], ["comfort", -10]],
+          "consumes": [["pantry", 3]],
+          "produces": [["fridge-food", 3]],
+          "interruptible": false,
+          "tags": ["food"],
+          "note": "The only thing that puts food back, and deliberately the worse meal: seventy an hour for seventy-five minutes is less than the fridge gives in thirty. Cooking is the chore. It costs the cook time and their cleanliness, and the three portions it makes are then anyone's. At a hundred an hour it beat the fridge outright and nobody ever opened the fridge at all."
+        }
+      ]
+    },
+    {
+      "id": "coffee-pot",
+      "name": "the coffee pot",
+      "room": "kitchen",
+      "interactions": [
+        {
+          "id": "brew",
+          "label": "make coffee",
+          "durationHours": 0.25,
+          "effects": [["energy", 170], ["fun", -7]],
+          "consumes": [["pantry", 1]],
+          "tags": ["energy"],
+          "note": "Energy without going to bed, bought off the same shelf dinner comes from. Ninety an hour for fifteen minutes is a deliberately narrow window: at forty-five nobody ever chose it, and at seventy for half an hour the whole house stopped sleeping and lived on coffee and naps."
+        }
+      ]
+    },
+    {
+      "id": "dining-table",
+      "name": "the dining table",
+      "room": "dining-room",
+      "interactions": [
+        {
+          "id": "eat-together",
+          "label": "eat at the table",
+          "durationHours": 1,
+          "effects": [["hunger", 45], ["social", 34]],
+          "consumes": [["fridge-food", 1]],
+          "capacity": 2,
+          "tags": ["food", "social"],
+          "note": "A worse meal than the fridge, out of the same shelf, taking twice as long. What it buys is company, so who chooses it is a straight read on how much somebody wants company: the least sociable character in the house is the only one who regularly opens the fridge instead."
+        }
+      ]
+    },
+    {
+      "id": "fruit-bowl",
+      "name": "the fruit bowl",
+      "room": "dining-room",
+      "interactions": [
+        {
+          "id": "pick",
+          "label": "pick at the fruit bowl",
+          "durationHours": 0.5,
+          "effects": [["hunger", 52]],
+          "tags": ["food"],
+          "note": "The one thing to eat that needs nothing from any store, and less than half what the fridge is worth. It exists because hunger is the one motive personality gets no vote on — a character who starves because they are shy is a bug — so a house where the pantry and the fridge can both be empty at once is a house where hunger has no source at all. That is not drama, it is everybody starving equally. This is the fallback, and it is deliberately poor."
+        }
+      ]
+    },
+    {
+      "id": "sofa",
+      "name": "the sofa",
+      "room": "living-room",
+      "interactions": [
+        {
+          "id": "nap",
+          "label": "nap on the sofa",
+          "durationHours": 1.5,
+          "effects": [["energy", 38]],
+          "decayMultipliers": [["hunger", 0.6], ["fun", 0.5]],
+          "capacity": 2,
+          "tags": ["sleep", "comfort"],
+          "note": "Energy, and nothing else. It paid comfort for several iterations and that was enough to put the whole house on the sofa a fifth to a third of the time while the beds stood empty: a short commitment paying two motives beats a six-hour one paying one, every time. Now it is strictly worse than a bed, which is what a nap is — and when both beds are taken it is the best thing left, which is what a nap is for."
+        }
+      ]
+    },
+    {
+      "id": "television",
+      "name": "the television",
+      "room": "living-room",
+      "interactions": [
+        {
+          "id": "watch",
+          "label": "watch television",
+          "durationHours": 1.5,
+          "effects": [["fun", 26], ["energy", -5]],
+          "capacity": 3,
+          "tags": ["fun", "comfort"],
+          "note": "Fun, and nothing else. It paid comfort too for one iteration, and that was enough to kill the bookshelf and the armchair outright — thirty per cent of three characters lives went on this one object. On the house before that it paid fun and comfort and social at once and flattened four people into one."
+        }
+      ]
+    },
+    {
+      "id": "piano",
+      "name": "the piano",
+      "room": "living-room",
+      "interactions": [
+        {
+          "id": "play",
+          "label": "play the piano",
+          "durationHours": 0.75,
+          "effects": [["fun", 85], ["energy", -16], ["comfort", -11]],
+          "tags": ["fun"],
+          "note": "The best fun in the house and the most expensive. Only a high fun weight makes that trade."
+        }
+      ]
+    },
+    {
+      "id": "bookshelf",
+      "name": "the bookshelf",
+      "room": "study",
+      "interactions": [
+        {
+          "id": "read",
+          "label": "read a book",
+          "durationHours": 1,
+          "effects": [["fun", 54], ["energy", -14]],
+          "tags": ["fun"],
+          "note": "Quiet fun, no company, and the study is three rooms from anywhere sociable."
+        }
+      ]
+    },
+    {
+      "id": "armchair",
+      "name": "the armchair",
+      "room": "study",
+      "interactions": [
+        {
+          "id": "sit",
+          "label": "sit in the armchair",
+          "durationHours": 1,
+          "effects": [["comfort", 78], ["energy", 27]],
+          "tags": ["comfort"],
+          "note": "One thing, done well. Restless characters never touch it."
+        }
+      ]
+    },
+    {
+      "id": "telephone",
+      "name": "the telephone",
+      "room": "hall",
+      "interactions": [
+        {
+          "id": "call",
+          "label": "call a friend",
+          "durationHours": 0.5,
+          "effects": [["social", 44], ["comfort", -14], ["energy", -7]],
+          "tags": ["social"],
+          "note": "Company that needs nobody's consent, paid for by standing in a draughty hall. The one social source that works when the house is asleep."
+        }
+      ]
+    },
+    {
+      "id": "shower",
+      "name": "the shower",
+      "room": "bathroom",
+      "interactions": [
+        {
+          "id": "wash",
+          "label": "take a shower",
+          "durationHours": 0.5,
+          "effects": [["hygiene", 200], ["energy", 34]],
+          "consumes": [["hot-water", 25]],
+          "tags": ["hygiene"]
+        }
+      ]
+    },
+    {
+      "id": "bath",
+      "name": "the bath",
+      "room": "bathroom",
+      "interactions": [
+        {
+          "id": "soak",
+          "label": "soak in the bath",
+          "durationHours": 1.25,
+          "effects": [["hygiene", 120], ["comfort", 59], ["fun", 30]],
+          "consumes": [["hot-water", 40]],
+          "tags": ["hygiene", "comfort"],
+          "note": "Worse hygiene per hour than the shower and more than twice the hot water. A bath at eight in the morning is a decision the rest of the house pays for."
+        }
+      ]
+    },
+    {
+      "id": "basin",
+      "name": "the basin",
+      "room": "bathroom",
+      "interactions": [
+        {
+          "id": "rinse",
+          "label": "wash at the basin",
+          "durationHours": 0.5,
+          "effects": [["hygiene", 94], ["comfort", -7]],
+          "tags": ["hygiene"],
+          "note": "Cold, quick, free, and not very good. This is what an empty tank leaves you."
+        }
+      ]
+    },
+    {
+      "id": "bed-north",
+      "name": "the north bed",
+      "room": "bedroom-north",
+      "interactions": [
+        {
+          "id": "sleep",
+          "label": "sleep",
+          "durationHours": 7,
+          "minimumHours": 6,
+          "effects": [["energy", 75], ["comfort", 9]],
+          "decayMultipliers": [["hunger", 0.35], ["social", 0], ["fun", 0], ["hygiene", 0.4], ["comfort", 0]],
+          "tags": ["sleep"],
+          "note": "Two beds, five people. Six hours of minimum commitment is where this house's energy budget balances."
+        }
+      ]
+    },
+    {
+      "id": "bed-south",
+      "name": "the south bed",
+      "room": "bedroom-south",
+      "interactions": [
+        {
+          "id": "sleep",
+          "label": "sleep",
+          "durationHours": 7,
+          "minimumHours": 6,
+          "effects": [["energy", 75], ["comfort", 9]],
+          "decayMultipliers": [["hunger", 0.35], ["social", 0], ["fun", 0], ["hygiene", 0.4], ["comfort", 0]],
+          "tags": ["sleep"]
+        }
+      ]
+    }
+  ]
+}

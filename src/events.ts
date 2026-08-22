@@ -71,6 +71,7 @@ export interface RunStartedEvent extends EventTiming {
     readonly traits: TraitVector;
     readonly weights: MotiveVector;
     readonly motives: MotiveVector;
+    readonly roomId: string | null;
   }[];
 }
 
@@ -124,9 +125,115 @@ export interface SnapshotEvent extends EventTiming {
   readonly characters: readonly {
     readonly id: string;
     readonly action: string | null;
+    readonly roomId: string | null;
     readonly motives: MotiveVector;
   }[];
 }
+
+/**
+ * The house, stated once at the top of the run.
+ *
+ * Everything downstream of the engine names rooms, objects and resources by id —
+ * `moved` says `bedroom-north`, `resource_changed` says `hot-water` — and a log
+ * that names things it never introduces cannot be read on its own. #10 has to
+ * draw this house from a recorded run, not from the config file that happened to
+ * be on disk at the time, or a replay silently re-renders against whatever the
+ * world was edited into afterwards.
+ */
+export interface WorldDescription {
+  readonly worldId: string;
+  readonly name: string;
+  readonly entryRoom: string;
+  readonly rooms: readonly {
+    readonly id: string;
+    readonly name: string;
+    /** Symmetric and sorted: every doorway appears from both sides. */
+    readonly exits: readonly string[];
+  }[];
+  readonly objects: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly roomId: string;
+    readonly interactions: readonly { readonly id: string; readonly label: string }[];
+  }[];
+  readonly resources: readonly {
+    readonly id: string;
+    readonly label: string;
+    readonly capacity: number;
+    readonly value: number;
+  }[];
+}
+
+export interface WorldDescribedEvent extends EventTiming {
+  readonly kind: 'world_described';
+  readonly world: WorldDescription;
+}
+
+export interface MovedEvent extends EventTiming {
+  readonly kind: 'moved';
+  readonly characterId: string;
+  readonly fromRoomId: string | null;
+  readonly toRoomId: string;
+  readonly hours: number;
+}
+
+/**
+ * Somebody walked across the house for something that was gone when they got
+ * there.
+ *
+ * This is the cost of *not* reserving an object while a character is on their
+ * way to it. Reserving would be tidier and would waste no trips; it would also
+ * delete the only moment in the run where a character is visibly worse off for
+ * having been slower than somebody else. The wasted walk is the point.
+ */
+export interface PlanBlockedEvent extends EventTiming {
+  readonly kind: 'plan_blocked';
+  readonly characterId: string;
+  readonly advertiserId: string;
+  readonly interactionId: string;
+  readonly label: string;
+  readonly reason: BlockedReason;
+}
+
+export type BlockedReason =
+  /** Somebody else was using it, and it seats fewer people than wanted it. */
+  | 'occupied'
+  /** It is no longer on offer at all: the resource it needs has run out. */
+  | 'unavailable';
+
+export type ResourceChangeReason = 'consumed' | 'produced';
+
+/**
+ * Events the world raises rather than the engine.
+ *
+ * They are declared without timing, because a world has no clock — it is told
+ * how many hours passed and never what time it is, which is one fewer place a
+ * run could pick up a dependency on anything but its seed. The engine stamps
+ * them as it drains them.
+ */
+export type WorldEventBody =
+  | {
+      readonly kind: 'resource_changed';
+      readonly resourceId: string;
+      readonly label: string;
+      readonly delta: number;
+      readonly value: number;
+      readonly characterId: string | null;
+      readonly reason: ResourceChangeReason;
+    }
+  | {
+      readonly kind: 'resource_depleted';
+      readonly resourceId: string;
+      readonly label: string;
+    }
+  | {
+      readonly kind: 'resource_restocked';
+      readonly resourceId: string;
+      readonly label: string;
+      readonly value: number;
+    };
+
+export type WorldEvent = WorldEventBody & EventTiming;
 
 export interface RunFinishedEvent extends EventTiming {
   readonly kind: 'run_finished';
@@ -136,10 +243,14 @@ export interface RunFinishedEvent extends EventTiming {
 
 export type SimEvent =
   | RunStartedEvent
+  | WorldDescribedEvent
   | ActionStartedEvent
   | ActionEndedEvent
   | ConversationStartedEvent
+  | MovedEvent
+  | PlanBlockedEvent
   | MotiveCriticalEvent
   | MotiveRelievedEvent
+  | WorldEvent
   | SnapshotEvent
   | RunFinishedEvent;

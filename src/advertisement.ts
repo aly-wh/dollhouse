@@ -11,6 +11,7 @@
  * opaque `roomId` and a travel cost.
  */
 
+import type { ActionEndReason, WorldDescription, WorldEventBody } from './events';
 import type { PartialMotiveVector } from './motives';
 
 export interface Interaction {
@@ -69,11 +70,33 @@ export interface CharacterView {
   readonly roomId?: string;
 }
 
+export interface WorldActionStart {
+  readonly characterId: string;
+  readonly advertiserId: string;
+  readonly interactionId: string;
+}
+
+export interface WorldActionEnd extends WorldActionStart {
+  readonly reason: ActionEndReason;
+}
+
 /**
  * How the engine asks the world what is on offer.
  *
- * Deliberately two methods and no more. #5 can back this with real rooms and
- * pathfinding without the engine learning a thing about either.
+ * The two required methods are #4's, unchanged. Everything below them is
+ * optional and defaulted-off, so `staticWorld` and every adapter written before
+ * #5 still satisfies this interface and behaves exactly as it did.
+ *
+ * The optional half exists because a world with *resources* cannot be a pure
+ * function of nothing. Food that runs out has to be told that somebody ate; a
+ * tank that refills has to be told that time passed. #4 wrote the socket
+ * assuming the world was a static list, which is the right assumption to start
+ * from and the wrong one to keep: the whole of "a world with infinite everything
+ * produces no drama" lives in these four methods.
+ *
+ * The engine calls them and knows nothing else. It never learns what a room is,
+ * what a resource is, or why the fridge stopped advertising — only that the list
+ * it was handed this tick is shorter than the one it was handed last tick.
  */
 export interface WorldAdapter {
   listAdvertisers(): readonly Advertiser[];
@@ -81,8 +104,43 @@ export interface WorldAdapter {
    * Hours it would cost this character to reach this advertiser. Attenuates the
    * score, which is what stops a character crossing the house for a marginally
    * better sandwich. Return 0 if the world has no geometry yet.
+   *
+   * Since #5 this is charged twice over, deliberately: once as a discount on the
+   * score, and once as real simulated time, because the engine turns a non-zero
+   * answer into an actual walk that occupies actual ticks. The discount is the
+   * preference — "not worth crossing the house for" — and the time is the price.
    */
   travelHours(character: CharacterView, advertiser: Advertiser): number;
+
+  /** Simulated hours have passed. Where tanks refill and stock replenishes. */
+  advance?(hours: number): void;
+
+  /**
+   * A character has begun something. Resources are spent here, in full, at the
+   * start — you take the food out of the fridge before you eat it, and being
+   * interrupted halfway through does not put it back.
+   */
+  onActionStarted?(event: WorldActionStart): void;
+
+  /**
+   * A character has stopped. `reason` matters: only `finished` should pay out
+   * whatever the interaction produces. Walking away from a half-cooked meal
+   * makes nothing, which is the difference between a chore and a formality.
+   */
+  onActionEnded?(event: WorldActionEnd): void;
+
+  /**
+   * Anything the world wants in the run log since it was last asked.
+   *
+   * Pull rather than push, and untimed: the world is never handed a clock, an
+   * emitter, or a reference to the simulation, so there is no route by which it
+   * could observe anything but the hours it is told about. The engine stamps the
+   * timing on as it drains.
+   */
+  drainEvents?(): readonly WorldEventBody[];
+
+  /** The house, for the log. Emitted once, so a recorded run can be read alone. */
+  describe?(): WorldDescription;
 }
 
 /** A world with no geometry: everything is reachable, instantly. Fine until #5. */

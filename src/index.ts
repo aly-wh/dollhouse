@@ -20,6 +20,8 @@ export {
   type Advertiser,
   type CharacterView,
   type Interaction,
+  type WorldActionEnd,
+  type WorldActionStart,
   type WorldAdapter,
 } from './advertisement';
 
@@ -31,13 +33,21 @@ export {
   type ActionEndReason,
   type ActionEndedEvent,
   type ActionStartedEvent,
+  type BlockedReason,
   type ConversationStartedEvent,
   type MotiveCriticalEvent,
   type MotiveRelievedEvent,
+  type MovedEvent,
+  type PlanBlockedEvent,
+  type ResourceChangeReason,
   type RunFinishedEvent,
   type RunStartedEvent,
   type SimEvent,
   type SnapshotEvent,
+  type WorldDescribedEvent,
+  type WorldDescription,
+  type WorldEvent,
+  type WorldEventBody,
 } from './events';
 
 export {
@@ -82,15 +92,44 @@ export {
 
 export {
   DEFAULT_SOCIAL_INTERACTION,
+  DEFAULT_TRAVEL_EFFECTS,
   IDLE_LABEL,
   Simulation,
+  TRAVEL_LABEL,
   runSimulation,
   type CharacterSpec,
   type CharacterState,
   type RunningAction,
   type SimulationConfig,
   type SimulationResult,
+  type TravelPlan,
 } from './simulation';
+
+export {
+  DEFAULT_WORLD_PATH,
+  House,
+  ResourcePool,
+  RoomGraph,
+  STRONG_SOURCE_PER_HOUR,
+  WorldConfigError,
+  adjacency,
+  auditMotiveSources,
+  formatAudit,
+  generalists,
+  loadWorldFile,
+  parseWorldConfig,
+  parseWorldJson,
+  toPartialMotiveVector,
+  type AuditableOffer,
+  type InteractionConfig,
+  type MotiveAudit,
+  type MotiveSource,
+  type ObjectConfig,
+  type ResourceConfig,
+  type ResourceSnapshot,
+  type RoomConfig,
+  type WorldConfig,
+} from './world';
 
 export {
   formatSummary,

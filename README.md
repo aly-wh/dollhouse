@@ -2,7 +2,8 @@
 
 A cutaway house full of agents who don't know you're watching.
 
-**Status: pre-MVP.** Nothing here runs yet.
+**Status: pre-MVP.** The simulation engine and the house run; there is no replayer, no art, and
+no dialogue yet.
 
 ## What it is
 
@@ -46,25 +47,61 @@ npm run typecheck # tsc --noEmit
 npm run demo      # run the demo house and print what happened
 ```
 
-The demo takes `--seed`, `--days`, and `--format text|summary|timeline|json`.
-`--format json` writes the raw event log to stdout and is byte-stable for a
-given seed, so two runs can be diffed; timing goes to stderr to keep it out of
-the diff.
+The demo takes `--seed`, `--days`, `--world`, and
+`--format text|summary|timeline|json|audit`. `--format json` writes the raw event
+log to stdout and is byte-stable for a given seed, so two runs can be diffed;
+timing goes to stderr to keep it out of the diff.
 
 ```
 npm run demo -- --seed alpha --days 10 --format summary
 npm run demo -- --seed alpha --days 2 --format timeline --characters dez
+npm run demo -- --format audit
+npm run demo -- --world worlds/dollhouse.json --days 4
 ```
 
 Characters choose what to do by arithmetic over motives — no model is called
 anywhere in the simulation loop, and a test enforces it. Dialogue is the only
 place inference is ever spent, and it is not built yet.
 
+## The house
+
+The world is data, not code: `worlds/dollhouse.json` holds the rooms, the doors
+between them, the objects and what each one advertises, and the stores that run
+out. Adding a room or an object is an edit to that file. `--world <path>` runs a
+different one.
+
+Three things about it are load-bearing, and all three were learned the hard way:
+
+- **Every motive has at least two sources with different side-effects.** At
+  steady state a motive costs decay divided by supply, and no personality weight
+  appears anywhere in that. Weights decide *which* source somebody reaches for,
+  so a motive with one source is a motive on which personality cannot show at
+  all. `npm run demo -- --format audit` checks it, and so does the test suite.
+- **No object is good at everything.** An object paying two motives strongly
+  beats every specialist for every character, because the scores add. One of
+  those quietly erases personality from the whole house.
+- **Nothing may advertise less than it delivers.** Decay runs while an action
+  runs, so an object paying twelve comfort an hour in a house where comfort falls
+  nine an hour nets three. The audit reports those too.
+
+Things run out. The tank holds two showers and a bath, and refills slowly enough
+that whoever takes the bath is a decision the rest of the house pays for; the
+fridge holds only what somebody last cooked, and cooking is a seventy-five-minute
+chore you cannot walk away from, which leaves the cook dirtier than they started
+and the leftovers available to anybody. Who cooks, who raids, and who ends up at
+the basin is most of what there is to watch.
+
+The supply side is calibrated against a **thirty-day** run, not a six-day one.
+Six days is still the descent from the starting motives, and a house that looks
+fine over six days can be losing ground on every axis at once for the next
+twenty-four. `npm run demo -- --days 30 --format behaviour` is the check, and
+`src/world/behaviour.test.ts` asserts it.
+
 ## Contributing notes
 
-This repository is currently private. Every rule below is written as though it were public,
-because visibility is a toggle and history is not: anything committed now survives a flip back.
-Assume that whatever is merged is published.
+This repository is public. It was private when these rules were written, and they were written as
+though it were public even then, because visibility is a toggle and history is not: anything
+committed survives a flip either way.
 
 - Never commit API keys, tokens, or anything from `.env`.
 - `.env.example` is the one member of the `.env` family that is committable. **Placeholders only —

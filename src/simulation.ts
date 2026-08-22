@@ -3,20 +3,34 @@
  *
  * Each tick, in a fixed order:
  *
+ *   0. The world advances — tanks refill, deliveries arrive. Before anybody
+ *      looks at what is on offer, so that within a tick the house is one house.
  *   1. Time passes — motives decay, whatever is running pays out its per-hour
  *      effects, and the clock on that action ticks down.
  *   2. Actions settle — anything that has run its course ends, and so does
  *      anything no longer worth finishing (this is how a rested character wakes
- *      up rather than lying in bed for the full seven hours).
+ *      up rather than lying in bed for the full seven hours). A walk that has
+ *      run its course *arrives*, which moves the character and starts whatever
+ *      they set off for, if it is still there.
  *   3. Threshold events fire for motives crossing into or out of crisis.
  *   4. Characters decide. Idle ones pick something; busy ones are re-examined
  *      only if a motive is in distress, because a character who re-decides every
  *      tick dithers in front of the fridge forever.
  *   5. A snapshot is emitted every N ticks.
  *
- * Characters are processed in sorted-id order in every phase. Not for tidiness:
- * two characters can want the same bed, and "whoever the iteration reached
- * first" has to be a stable answer or the run is not reproducible.
+ * Characters are held in sorted-id order, which is what makes the run
+ * reproducible: two of them can want the same bed, and "whoever the iteration
+ * reached first" has to be a stable answer or a replay is fiction.
+ *
+ * The two phases where they actually *compete* — arriving somewhere, and
+ * choosing — instead run in a seeded order that is reshuffled every tick. Stable
+ * order is reproducible but it is not fair, and the difference is not academic.
+ * Measured on this house over four seeds: the alphabetically first character
+ * lost 7 races in four days and the last lost 137, and walked half again as far
+ * to compensate. Whether you get the shower was decided by your name. The
+ * shuffle is a pure function of seed, tick and character id — nothing to do with
+ * draw order or with the order the cast was listed in — so it is exactly as
+ * reproducible as sorting was, and it costs one hash per character per tick.
  *
  * There are no model calls here and there is no place to put one. Everything
  * below is arithmetic over six numbers per character, which is the entire cost
@@ -36,6 +50,7 @@ import {
   round2,
   roundMotives,
   type ActionEndReason,
+  type BlockedReason,
   type EventTiming,
   type SimEvent,
 } from './events';
@@ -51,7 +66,7 @@ import {
   type PartialMotiveVector,
 } from './motives';
 import { resolveMotiveWeights, traitVector, type TraitVector } from './personality';
-import { createRng, type Rng } from './rng';
+import { createRng, hashString, type Rng } from './rng';
 import {
   DEFAULT_SCORING,
   applyJitter,
@@ -61,6 +76,28 @@ import {
 } from './scoring';
 
 export const IDLE_LABEL = 'idle';
+
+/**
+ * One label for every walk in the house, rather than "walk to the kitchen".
+ *
+ * The destination is in the `moved` event, where a reader can see where somebody
+ * went. Putting it in the label instead would scatter a character's travel
+ * across nine rows of the time-spent table and make "how much of the day goes on
+ * walking" — which is a real and tunable property of a floor plan — unanswerable
+ * at a glance.
+ */
+export const TRAVEL_LABEL = 'walk';
+
+/**
+ * What crossing the house costs you, per hour of walking.
+ *
+ * Small on purpose. A walk in the shipped house is a tick or two, so this is
+ * worth a point or two — enough that a house laid out badly is quietly
+ * expensive, not enough to make anybody a prisoner of the room they are in. The
+ * real cost of distance is the *time*: a scheduled walk occupies whole ticks,
+ * during which every motive decays and nothing is being satisfied.
+ */
+export const DEFAULT_TRAVEL_EFFECTS: PartialMotiveVector = { energy: -6, comfort: -6 };
 
 /** Hours below which a countdown counts as done, absorbing float drift. */
 const HOURS_EPSILON = 1e-9;
@@ -128,6 +165,8 @@ export interface SimulationConfig {
   /** 0 disables snapshots. Default 4 (hourly at the default tick length). */
   readonly snapshotEveryTicks?: number;
   readonly socialInteraction?: Interaction | null;
+  /** Per-hour cost of walking. Defaults to `DEFAULT_TRAVEL_EFFECTS`. */
+  readonly travelEffects?: PartialMotiveVector;
 }
 
 interface ResolvedOptions {
@@ -140,6 +179,27 @@ interface ResolvedOptions {
   readonly snapshotEveryTicks: number;
 }
 
+/**
+ * What a character is walking towards, and what they mean to do when they get
+ * there.
+ *
+ * The plan is not a reservation. Nothing is held for a character in transit, so
+ * arriving to find it taken or gone is an ordinary outcome rather than an error
+ * — and it is the only moment in a run where being further away than somebody
+ * else has a visible consequence.
+ */
+export interface TravelPlan {
+  readonly advertiserId: string;
+  readonly interactionId: string;
+  readonly label: string;
+  readonly roomId: string | undefined;
+  /** How long the walk was scheduled for, in hours. Reported on arrival. */
+  readonly hours: number;
+  /** The score they set off for. Stale by arrival, and reported as what it is. */
+  readonly score: number;
+  readonly key: string;
+}
+
 export interface RunningAction {
   readonly advertiserId: string;
   readonly interaction: Interaction;
@@ -148,6 +208,8 @@ export interface RunningAction {
   readonly score: number;
   readonly partnerId: string | null;
   readonly conversationId: string | null;
+  /** Non-null exactly when this is a walk. See `TravelPlan`. */
+  readonly travel: TravelPlan | null;
   hoursRemaining: number;
 }
 
@@ -157,7 +219,8 @@ export interface CharacterState {
   readonly traits: TraitVector;
   readonly weights: MotiveVector;
   readonly decayRates: MotiveVector;
-  readonly roomId: string | undefined;
+  /** Where they are standing. Changes only on arrival, never mid-walk. */
+  roomId: string | undefined;
   readonly rng: Rng;
   motives: MotiveVector;
   current: RunningAction | null;
@@ -194,6 +257,8 @@ interface Candidate {
   readonly advertiserId: string;
   readonly interaction: Interaction;
   readonly partnerId: string | null;
+  /** Where the advertiser is, so a walk knows where it ends. */
+  readonly roomId: string | undefined;
   readonly travelHours: number;
   readonly score: number;
 }
@@ -219,6 +284,7 @@ export class Simulation {
   private readonly byId: Map<string, CharacterState>;
   private readonly options: ResolvedOptions;
   private readonly socialInteraction: Interaction | null;
+  private readonly travelEffects: PartialMotiveVector;
 
   private tickIndex = 0;
   private minutes: number;
@@ -243,6 +309,7 @@ export class Simulation {
       config.socialInteraction === undefined
         ? DEFAULT_SOCIAL_INTERACTION
         : config.socialInteraction;
+    this.travelEffects = config.travelEffects ?? DEFAULT_TRAVEL_EFFECTS;
 
     this.options = {
       startMinutes: config.startMinutes ?? 8 * 60,
@@ -308,8 +375,17 @@ export class Simulation {
         traits: character.traits,
         weights: roundMotives(character.weights),
         motives: roundMotives(character.motives),
+        roomId: character.roomId ?? null,
       })),
     });
+
+    // Right after the run opens, so a recorded log names its own house before
+    // anything in it moves. A world that cannot describe itself simply does not,
+    // and the log is exactly as readable as it was before #5.
+    const described = this.world.describe?.();
+    if (described) {
+      this.events.push({ kind: 'world_described', ...this.timing(), world: described });
+    }
   }
 
   private createCharacter(spec: CharacterSpec): CharacterState {
@@ -338,18 +414,58 @@ export class Simulation {
     return { tick: this.tickIndex, minutes: this.minutes, clock: formatClock(this.minutes) };
   }
 
+  /**
+   * Who gets first refusal this tick.
+   *
+   * Derived from the seed, the tick and the character's id, and from nothing
+   * else — not from the order the cast was listed in, not from any random
+   * stream, not from how many decisions anybody has made. So it survives adding
+   * a character, it survives reordering the config, and the same seed produces
+   * the same queue for the shower on day nineteen every time.
+   *
+   * Sorted by the hash with the id as tie-break, so a hash collision is a stable
+   * outcome rather than a coin toss decided by the sort implementation.
+   */
+  private priorityOrder(): readonly CharacterState[] {
+    const keyed = this.characters.map((character) => ({
+      character,
+      key: hashString(`${this.seed}::order::${this.tickIndex}::${character.id}`),
+    }));
+    keyed.sort((left, right) =>
+      left.key !== right.key
+        ? left.key - right.key
+        : left.character.id < right.character.id
+          ? -1
+          : left.character.id > right.character.id
+            ? 1
+            : 0,
+    );
+    return keyed.map((entry) => entry.character);
+  }
+
   step(): void {
     if (this.tickIndex >= this.totalTicks) return;
 
     this.tickIndex += 1;
     this.minutes += this.tickMinutes;
 
+    this.world.advance?.(this.tickHours);
+    this.drainWorldEvents();
+
+    // Phases 1 and 3 are per-character and cannot interfere, so they keep the
+    // sorted order and give the log a stable shape. Phases 2 and 4 are races.
+    const contenders = this.priorityOrder();
+
     for (const character of this.characters) this.advanceTime(character);
-    for (const character of this.characters) this.settleAction(character);
+    for (const character of contenders) this.settleAction(character);
     for (const character of this.characters) this.emitMotiveEdges(character);
 
     const occupancy = this.currentOccupancy();
-    for (const character of this.characters) this.decide(character, occupancy);
+    for (const character of contenders) this.decide(character, occupancy);
+
+    // Once, after every character has moved and chosen. Everything the world
+    // wanted to say this tick was caused by something already in the log above.
+    this.drainWorldEvents();
 
     if (
       this.options.snapshotEveryTicks > 0 &&
@@ -414,7 +530,9 @@ export class Simulation {
     if (!running) return;
 
     if (running.hoursRemaining <= HOURS_EPSILON) {
+      const plan = running.travel;
       this.endAction(character, 'finished');
+      if (plan) this.arrive(character, plan);
       return;
     }
 
@@ -452,6 +570,16 @@ export class Simulation {
 
     // Cleared before the cascade, so a conversation ending cannot recurse.
     character.current = null;
+
+    // A walk is the engine's own invention and no business of the world's.
+    if (running.travel === null) {
+      this.world.onActionEnded?.({
+        characterId: character.id,
+        advertiserId: running.advertiserId,
+        interactionId: running.interaction.id,
+        reason,
+      });
+    }
 
     this.events.push({
       kind: 'action_ended',
@@ -508,7 +636,10 @@ export class Simulation {
     const occupancy = new Map<string, number>();
     for (const character of this.characters) {
       const running = character.current;
-      if (running) {
+      // Somebody on their way to the shower is not in the shower. Counting them
+      // would be a reservation, and the wasted walk is the point — see
+      // `TravelPlan`.
+      if (running && running.travel === null) {
         bump(occupancy, occupancyKey(running.advertiserId, running.interaction.id), 1);
       }
     }
@@ -600,6 +731,20 @@ export class Simulation {
     if (social) {
       for (const partner of this.characters) {
         if (partner.id === character.id) continue;
+        // You cannot start a conversation with somebody who is not there.
+        //
+        // Before #5 nothing had a position, so this was vacuously true and the
+        // rule did not need writing down. With a floor plan it stops being
+        // free, and leaving it out produced the worst behaviour in the first
+        // house that ran: characters set off across the building towards
+        // somebody who had wandered off by the time they arrived, sixty-nine
+        // times in four days, and the resulting wasted walks were the single
+        // largest use of anybody's day.
+        //
+        // The engine still knows nothing about rooms — this compares two opaque
+        // ids and treats "neither has one" as together, which is exactly the
+        // geometry-free world #4 shipped.
+        if (partner.roomId !== character.roomId) continue;
         // Only characters with nothing on are available. Someone mid-shower is
         // not a conversational opportunity.
         if (partner.current !== null) continue;
@@ -641,6 +786,7 @@ export class Simulation {
         advertiserId: advertiser.id,
         interaction,
         partnerId,
+        roomId: advertiser.roomId,
         travelHours: this.world.travelHours(view, advertiser),
         score: 0,
       });
@@ -673,6 +819,46 @@ export class Simulation {
     candidate: Candidate,
     occupancy: Map<string, number>,
   ): void {
+    // A journey is scheduled as the *nearest* whole number of ticks, and one that
+    // rounds to zero happens inside the tick it was decided in.
+    //
+    // Rounding rather than flooring or ceiling, and it is worth saying why,
+    // because both of the obvious rules were tried on this house and both broke
+    // it in opposite directions.
+    //
+    // Always scheduling at least one tick charges a seven-minute walk next door
+    // fifteen minutes. Every character then spent between a quarter and a third
+    // of their entire life walking — more than sleep — the day went so far past
+    // overcommitted that every motive sat under the distress threshold
+    // permanently, and a permanently distressed character re-decides every
+    // single tick and walks even more.
+    //
+    // Never scheduling anything under a tick is worse, and less obviously so.
+    // Travel fell to under three per cent, the day stopped being overcommitted
+    // at all, and the run went green and lifeless: five characters with an
+    // eightfold spread in hygiene weighting all showered between 3.6 and 5.0 per
+    // cent of the time. Nobody has to give anything up in a house where
+    // everything is next door, and what a character gives up is the only thing
+    // that shows you who they are.
+    //
+    // Rounding is unbiased over a run, so neither happens. Distance is charged
+    // twice regardless: as the score discount, which is what stops anybody
+    // crossing the house for a marginally better sandwich, and as whatever whole
+    // ticks the journey actually rounds to.
+    //
+    // A conversation is the exception and is never walked to at all. The engine
+    // only offers you somebody already in your room, so there is nothing to walk
+    // to — and the alternative, setting off across the house towards a person,
+    // was the single worst behaviour in the first house that ran: sixty-nine
+    // journeys in four days that ended in front of somebody who had wandered off.
+    const travelTicks =
+      candidate.partnerId === null ? Math.round(candidate.travelHours / this.tickHours) : 0;
+    if (travelTicks >= 1) {
+      this.beginTravel(character, candidate, travelTicks * this.tickHours);
+      return;
+    }
+    this.placeIn(character, candidate.roomId, candidate.travelHours);
+
     const { interaction } = candidate;
     const partner =
       candidate.partnerId !== null ? (this.byId.get(candidate.partnerId) ?? null) : null;
@@ -687,11 +873,19 @@ export class Simulation {
       score: candidate.score,
       partnerId: partner?.id ?? null,
       conversationId,
+      travel: null,
       hoursRemaining: interaction.durationHours,
     };
     bump(occupancy, candidate.key, 1);
     bump(character.startsByLabel, interaction.label, 1);
     this.emitActionStarted(character, character.current);
+    // After the event, so the log reads cause then consequence: somebody starts
+    // eating, and then there is one fewer portion.
+    this.world.onActionStarted?.({
+      characterId: character.id,
+      advertiserId: candidate.advertiserId,
+      interactionId: interaction.id,
+    });
 
     if (partner && conversationId) {
       // A separate object: `hoursRemaining` is mutable and the two sides must
@@ -704,6 +898,7 @@ export class Simulation {
         score: candidate.score,
         partnerId: character.id,
         conversationId,
+        travel: null,
         hoursRemaining: interaction.durationHours,
       };
       bump(partner.startsByLabel, interaction.label, 1);
@@ -718,6 +913,145 @@ export class Simulation {
       });
       this.emitActionStarted(partner, partner.current);
     }
+  }
+
+  // ---- movement ------------------------------------------------------------
+
+  private beginTravel(character: CharacterState, candidate: Candidate, hours: number): void {
+    const interaction: Interaction = {
+      // Unique per destination so two walks are never confused, and distinct
+      // from any real interaction id so a world asked about it finds nothing.
+      id: `walk:${candidate.key}`,
+      label: TRAVEL_LABEL,
+      durationHours: hours,
+      effects: this.travelEffects,
+      // You do not stop halfway down the stairs to reconsider, and you do not
+      // arrive early because you stopped being tired on the way.
+      interruptible: false,
+      minimumHours: hours,
+      tags: ['travel'],
+    };
+
+    character.current = {
+      advertiserId: candidate.advertiserId,
+      interaction,
+      startedTick: this.tickIndex,
+      startedMinutes: this.minutes,
+      score: candidate.score,
+      partnerId: null,
+      conversationId: null,
+      travel: {
+        advertiserId: candidate.advertiserId,
+        interactionId: candidate.interaction.id,
+        label: candidate.interaction.label,
+        roomId: candidate.roomId,
+        hours,
+        score: candidate.score,
+        key: candidate.key,
+      },
+      hoursRemaining: hours,
+    };
+
+    bump(character.startsByLabel, TRAVEL_LABEL, 1);
+    this.emitActionStarted(character, character.current);
+  }
+
+  /**
+   * A walk has finished. Move the character, then start what they came for — if
+   * it is still there and still free.
+   *
+   * Both of those can have changed while they were walking, which is the whole
+   * reason travel is time rather than only a discount.
+   */
+  private arrive(character: CharacterState, plan: TravelPlan): void {
+    this.placeIn(character, plan.roomId, plan.hours);
+
+    const offer = this.findOffer(plan.advertiserId, plan.interactionId);
+    if (!offer) {
+      this.emitBlocked(character, plan, 'unavailable');
+      return;
+    }
+
+    const occupancy = this.currentOccupancy();
+    if ((occupancy.get(plan.key) ?? 0) >= interactionCapacity(offer.interaction)) {
+      this.emitBlocked(character, plan, 'occupied');
+      return;
+    }
+
+    const candidate: Candidate = {
+      key: plan.key,
+      advertiserId: plan.advertiserId,
+      interaction: offer.interaction,
+      partnerId: null,
+      roomId: offer.roomId,
+      travelHours: 0,
+      score: plan.score,
+    };
+
+    // Deliberately not re-scored on arrival. It looks like it ought to be —
+    // "is this still worth doing?" — but it can only ever answer yes: nothing
+    // satisfies a motive while somebody is walking, so every motive is lower
+    // than it was when they set off, the satisfaction curve is concave, and the
+    // travel discount has gone. The score can only have risen. A check that
+    // cannot fail is worse than no check, because it reads as protection.
+    this.commit(character, candidate, occupancy);
+  }
+
+  private placeIn(character: CharacterState, roomId: string | undefined, hours: number): void {
+    if (roomId === undefined || roomId === character.roomId) return;
+    const from = character.roomId ?? null;
+    character.roomId = roomId;
+    this.events.push({
+      kind: 'moved',
+      ...this.timing(),
+      characterId: character.id,
+      fromRoomId: from,
+      toRoomId: roomId,
+      hours: round2(hours),
+    });
+  }
+
+  private emitBlocked(
+    character: CharacterState,
+    plan: TravelPlan,
+    reason: BlockedReason,
+  ): void {
+    this.events.push({
+      kind: 'plan_blocked',
+      ...this.timing(),
+      characterId: character.id,
+      advertiserId: plan.advertiserId,
+      interactionId: plan.interactionId,
+      label: plan.label,
+      reason,
+    });
+  }
+
+  /**
+   * The interaction as the world offers it *now*, or null if it has gone.
+   *
+   * "Gone" is the ordinary case, not an error: the world stops advertising
+   * anything it can no longer pay for, so an empty fridge is simply not in the
+   * list any more.
+   */
+  private findOffer(
+    advertiserId: string,
+    interactionId: string,
+  ): { interaction: Interaction; roomId: string | undefined } | null {
+    for (const advertiser of this.world.listAdvertisers()) {
+      if (advertiser.id !== advertiserId) continue;
+      for (const interaction of advertiser.interactions) {
+        if (interaction.id === interactionId) return { interaction, roomId: advertiser.roomId };
+      }
+      return null;
+    }
+    return null;
+  }
+
+  private drainWorldEvents(): void {
+    const drained = this.world.drainEvents?.();
+    if (!drained) return;
+    for (const body of drained) this.events.push({ ...body, ...this.timing() });
   }
 
   private emitActionStarted(character: CharacterState, action: RunningAction): void {
@@ -744,6 +1078,7 @@ export class Simulation {
       characters: this.characters.map((character) => ({
         id: character.id,
         action: character.current ? character.current.interaction.label : null,
+        roomId: character.roomId ?? null,
         motives: roundMotives(character.motives),
       })),
     });
