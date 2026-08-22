@@ -1,0 +1,23 @@
+{
+  "name": "dollhouse",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "DollHouse simulation engine — need-driven utility AI. Arithmetic only, no model calls.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "demo": "tsx src/demo/cli.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}
