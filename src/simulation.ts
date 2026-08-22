@@ -266,6 +266,29 @@ export class Simulation {
       ids.add(spec.id);
     }
 
+    // Occupancy is keyed on advertiser id plus interaction id. Two advertisers
+    // sharing an id would share a slot and quietly halve the house's capacity —
+    // a bug that shows up as characters mysteriously queueing, with nothing in
+    // the log to say why. Worth catching at construction, since #5 will be
+    // generating these.
+    const advertiserIds = new Set<string>();
+    for (const advertiser of this.world.listAdvertisers()) {
+      if (advertiserIds.has(advertiser.id)) {
+        throw new Error(`duplicate advertiser id: ${advertiser.id}`);
+      }
+      advertiserIds.add(advertiser.id);
+
+      const interactionIds = new Set<string>();
+      for (const interaction of advertiser.interactions) {
+        if (interactionIds.has(interaction.id)) {
+          throw new Error(
+            `duplicate interaction id on ${advertiser.id}: ${interaction.id}`,
+          );
+        }
+        interactionIds.add(interaction.id);
+      }
+    }
+
     // Sorted once, here. Every later phase relies on this order being stable.
     this.characters = [...config.characters]
       .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))

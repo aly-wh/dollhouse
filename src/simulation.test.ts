@@ -380,6 +380,34 @@ describe('configuration', () => {
     ).toThrow(/duplicate/);
   });
 
+  it('rejects two advertisers sharing an id', () => {
+    // They would share an occupancy slot and halve the house's capacity, with
+    // nothing in the log to explain the queue.
+    expect(
+      () => new Simulation({ seed: 's', world: [fridge, fridge], characters: [{ id: 'a' }] }),
+    ).toThrow(/duplicate advertiser/);
+  });
+
+  it('rejects two interactions on one advertiser sharing an id', () => {
+    expect(
+      () =>
+        new Simulation({
+          seed: 's',
+          characters: [{ id: 'a' }],
+          world: [
+            {
+              id: 'thing',
+              kind: 'object',
+              interactions: [
+                { id: 'use', label: 'one', durationHours: 1, effects: { fun: 1 } },
+                { id: 'use', label: 'two', durationHours: 1, effects: { fun: 2 } },
+              ],
+            },
+          ],
+        }),
+    ).toThrow(/duplicate interaction/);
+  });
+
   it('rejects a non-positive tick', () => {
     expect(
       () => new Simulation({ seed: 's', world: [], characters: [{ id: 'a' }], tickMinutes: 0 }),
