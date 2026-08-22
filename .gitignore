@@ -2,6 +2,10 @@ node_modules/
 dist/
 build/
 
+# Agent tooling. Contains nested git worktrees; `git add -A` would otherwise
+# stage them as embedded git repositories, which is nasty to unpick later.
+.claude/
+
 # Never commit secrets. Visibility is a toggle; history outlives it.
 .env
 .env.*

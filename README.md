@@ -25,6 +25,30 @@ unproven part, so it's the only part the first build tests.
 - **Graphics deliberately ugly.** Art is not what is being tested, and polishing it early would
   disguise a failed result as a promising one.
 
+## Running the simulation engine
+
+Node 20+, then `npm install`.
+
+```
+npm test          # unit tests
+npm run typecheck # tsc --noEmit
+npm run demo      # run the demo house and print what happened
+```
+
+The demo takes `--seed`, `--days`, and `--format text|summary|timeline|json`.
+`--format json` writes the raw event log to stdout and is byte-stable for a
+given seed, so two runs can be diffed; timing goes to stderr to keep it out of
+the diff.
+
+```
+npm run demo -- --seed alpha --days 10 --format summary
+npm run demo -- --seed alpha --days 2 --format timeline --characters dez
+```
+
+Characters choose what to do by arithmetic over motives — no model is called
+anywhere in the simulation loop, and a test enforces it. Dialogue is the only
+place inference is ever spent, and it is not built yet.
+
 ## Contributing notes
 
 This repository is currently private. Every rule below is written as though it were public,

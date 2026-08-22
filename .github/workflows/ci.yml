@@ -1,0 +1,58 @@
+name: CI
+
+# Typecheck and tests only. Nothing here builds, publishes or deploys anything —
+# turning on hosting is a publication decision, not plumbing.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The first two entries are the exact floors declared in package.json's
+        # `engines`, pinned rather than floating.
+        #
+        # A matrix of ['20.x', '22.x'] resolves to the *newest* release in each
+        # line, which is far above the floor — so every job passes while the
+        # declared minimum goes untested, and the declaration is decorative. The
+        # lowest version we claim to support has to be the lowest version CI
+        # actually runs, or the claim witnesses nothing.
+        #
+        # Two independent constraints put the floor where it is, and BOTH need to
+        # be here, because relaxing the range on either one alone reintroduces a
+        # real break:
+        #
+        #   1. 17 packages in the lockfile (the vite/rolldown chain) declare
+        #      `^20.19.0 || >=22.12.0`, and vitest declares
+        #      `^20.0.0 || ^22.0.0 || >=24.0.0`. The intersection is what
+        #      `engines` says. This is the primary reason: it is static, and
+        #      checkable without installing anything.
+        #   2. `rolldown` does `import { formatWithOptions, styleText } from
+        #      "node:util"` at module load. `styleText` landed in Node 20.12, so
+        #      below it `npm ci` succeeds and `npm test` then dies with a missing
+        #      export nowhere near the real cause. Subsumed by (1) today — but it
+        #      is the reason the range cannot be quietly widened later on
+        #      lockfile evidence alone.
+        #
+        # Both were reasoned about from a grep over `src/` at some point tonight,
+        # and a grep over source cannot answer a question about dependencies.
+        node-version: ['20.19.0', '22.12.0', '22.x']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
