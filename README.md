@@ -56,7 +56,7 @@ diffed; timing goes to stderr to keep it out of the diff.
 npm run demo -- --seed alpha --days 10 --format summary
 npm run demo -- --seed alpha --days 2 --format timeline --characters dez
 npm run demo -- --format audit
-npm run demo -- --days 30 --format behaviour
+npm run demo -- --days 90 --format behaviour
 npm run demo -- --world worlds/dollhouse.json --cast casts/dollhouse.json --days 4
 ```
 
@@ -132,7 +132,7 @@ compares days 40–60 with days 70–90.
 
 ### How to tell whether personality is working
 
-`npm run demo -- --days 30 --format behaviour` prints the table, and the table
+`npm run demo -- --days 90 --format behaviour` prints the table, and the table
 has to be read the right way round:
 
 - **Time spent on a motive is not the signal.** At steady state it is decay
