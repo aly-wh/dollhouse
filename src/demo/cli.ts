@@ -21,8 +21,10 @@
  * instruction literally, and it is recorded rather than quietly corrected
  * because a confident sentence pointing the wrong way is worse than no sentence.)
  *
- * The house itself is no longer in this directory. It is `worlds/dollhouse.json`
- * and any other file `--world` is pointed at.
+ * Neither the house nor the cast is in this directory any more. The house is
+ * `worlds/dollhouse.json` and whatever `--world` points at; the people are
+ * `casts/dollhouse.json` and whatever `--cast` points at. What is left here is
+ * argument parsing and printing, which is all a demo should ever have been.
  */
 
 import {
@@ -31,26 +33,35 @@ import {
   formatSummary,
   formatTimeline,
   summariseRun,
+  type MotiveSourceRef,
 } from '../summary';
-import { runSimulation, type SimulationResult } from '../simulation';
+import { runSimulation, type CharacterSpec, type SimulationResult } from '../simulation';
 import { DEFAULT_SOCIAL_INTERACTION } from '../simulation';
 import { House } from '../world/house';
 import { DEFAULT_WORLD_PATH, loadWorldFile } from '../world/load';
 import { formatAudit, type AuditableOffer } from '../world/audit';
-import { MOTIVE_IDS, type MotiveId, type PartialMotiveVector } from '../motives';
-import { WorldConfigError } from '../world/config';
-import { DEMO_CAST } from './cast';
+import { MOTIVE_IDS, type PartialMotiveVector } from '../motives';
+import { ConfigError } from '../config/document';
+import {
+  DEFAULT_CAST_PATH,
+  checkCastAgainstWorld,
+  loadCastFile,
+  toCharacterSpecs,
+  type CastConfig,
+} from '../cast';
 
 interface Options {
   seed: string;
   days: number;
   tickMinutes: number;
   world: string;
+  cast: string;
   format: 'text' | 'summary' | 'timeline' | 'json' | 'audit' | 'behaviour';
   seeds: string[];
   characterIds: string[];
   motiveEvents: boolean;
   movement: boolean;
+  memory: boolean;
 }
 
 const USAGE = `dollhouse demo
@@ -59,11 +70,13 @@ const USAGE = `dollhouse demo
   --days <number>        simulated days (default 3)
   --tick-minutes <n>     minutes per tick (default 15)
   --world <path>         world file to run (default worlds/dollhouse.json)
+  --cast <path>          cast file to run (default casts/dollhouse.json)
   --format <f>           text | summary | timeline | json | audit | behaviour
   --seeds a,b,c          seeds for --format behaviour (default six)
   --characters a,b       restrict the timeline to these character ids
   --motive-events        include motive-critical lines in the timeline
   --movement             include every room change in the timeline
+  --memory               include every memory, not only the grudges
   --help
 
   --format audit reads the house on its own and checks it against the criterion
@@ -81,11 +94,13 @@ function parseArgs(argv: readonly string[]): Options | null {
     days: 3,
     tickMinutes: 15,
     world: DEFAULT_WORLD_PATH,
+    cast: DEFAULT_CAST_PATH,
     format: 'text',
     seeds: ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta'],
     characterIds: [],
     motiveEvents: false,
     movement: false,
+    memory: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -112,6 +127,9 @@ function parseArgs(argv: readonly string[]): Options | null {
         break;
       case '--world':
         options.world = value();
+        break;
+      case '--cast':
+        options.cast = value();
         break;
       case '--format': {
         const format = value();
@@ -146,6 +164,9 @@ function parseArgs(argv: readonly string[]): Options | null {
         break;
       case '--movement':
         options.movement = true;
+        break;
+      case '--memory':
+        options.memory = true;
         break;
       default:
         throw new Error(`unknown argument: ${String(arg)}`);
@@ -189,15 +210,23 @@ function auditableOffers(house: House): AuditableOffer[] {
  * Only positive effects count: the television costs energy, which does not make
  * it one of the ways a character rests.
  */
-function motiveSources(house: House): { label: string; motive: MotiveId }[] {
-  const rows: { label: string; motive: MotiveId }[] = [];
-  const add = (interaction: { label: string; effects: PartialMotiveVector }): void => {
+function motiveSources(house: House): MotiveSourceRef[] {
+  const rows: MotiveSourceRef[] = [];
+  const add = (
+    advertiserId: string,
+    interaction: { label: string; effects: PartialMotiveVector },
+  ): void => {
     for (const motive of MOTIVE_IDS) {
-      if ((interaction.effects[motive] ?? 0) > 0) rows.push({ label: interaction.label, motive });
+      if ((interaction.effects[motive] ?? 0) > 0) {
+        rows.push({ label: interaction.label, motive, advertiserId });
+      }
     }
   };
-  for (const offer of house.allOffers()) add(offer.interaction);
-  add(DEFAULT_SOCIAL_INTERACTION);
+  // The object id travels with the label so the mix table can say which objects
+  // a row covers. Two beds are one label; the reader gets told they are two
+  // beds instead of being shown the row twice.
+  for (const offer of house.allOffers()) add(offer.objectId, offer.interaction);
+  add('(each other)', DEFAULT_SOCIAL_INTERACTION);
   return rows;
 }
 
@@ -207,6 +236,7 @@ function render(result: SimulationResult, options: Options): string {
       characterIds: options.characterIds,
       includeMotiveEvents: options.motiveEvents,
       includeMovement: options.movement,
+      includeMemory: options.memory,
     });
 
   switch (options.format) {
@@ -241,10 +271,18 @@ function main(): void {
   }
 
   let house: House;
+  let cast: CastConfig;
+  let characters: readonly CharacterSpec[];
   try {
     house = new House(loadWorldFile(options.world));
+    cast = loadCastFile(options.cast);
+    // The two documents are written apart and only meet here, so this is the
+    // only place that can tell whether the rooms the cast names exist. A typo
+    // otherwise puts somebody in the hall for the rest of the run, silently.
+    checkCastAgainstWorld(cast, house.config.rooms.map((room) => room.id));
+    characters = toCharacterSpecs(cast);
   } catch (error) {
-    if (error instanceof WorldConfigError) {
+    if (error instanceof ConfigError) {
       process.stderr.write(`${error.message}\n`);
       process.exitCode = 1;
       return;
@@ -266,10 +304,11 @@ function main(): void {
         runSimulation({
           seed,
           world,
-          characters: DEMO_CAST,
+          characters,
           days: options!.days,
           tickMinutes: options!.tickMinutes,
           scoring: world.scoringOverrides(),
+          memory: cast.memory,
         }),
       );
     });
@@ -283,10 +322,11 @@ function main(): void {
   const result = runSimulation({
     seed: options.seed,
     world: house,
-    characters: DEMO_CAST,
+    characters,
     days: options.days,
     tickMinutes: options.tickMinutes,
     scoring: house.scoringOverrides(),
+    memory: cast.memory,
   });
   const elapsedMs = Date.now() - startedAt;
 

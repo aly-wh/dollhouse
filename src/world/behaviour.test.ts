@@ -76,6 +76,17 @@ const results = SEEDS.map((seed) => {
     days: DAYS,
     snapshotEveryTicks: 4,
     scoring: world.scoringOverrides(),
+    // Memory off, so these stay claims about the *house*.
+    //
+    // #6 turned memory on by default, and it relieves this house measurably:
+    // characters stop walking to things that keep being taken, so the share of
+    // samples where somebody is letting a motive slide falls from 3.6% to 1.9%
+    // and the settled mean rises from +21.5 to +23.4. That is a real effect and
+    // it is asserted where it belongs, on the shipped cast, in
+    // `src/cast/dollhouse.test.ts`. Letting it in here would mean these numbers
+    // move whenever anybody retunes a grudge, which is exactly the coupling this
+    // file was written on a private fixture to avoid.
+    memory: null,
   });
 });
 

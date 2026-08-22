@@ -8,6 +8,7 @@
  */
 
 import { round2, type BlockedReason } from './events';
+import type { MemoryCause } from './memory';
 import { MOTIVE_IDS, mapMotives, type MotiveId, type MotiveVector } from './motives';
 import type { TraitVector } from './personality';
 import { IDLE_LABEL, type CharacterState, type SimulationResult } from './simulation';
@@ -44,6 +45,16 @@ export interface CharacterSummary {
    * choice, so nobody's first choice is ever visible.
    */
   readonly blockedPlans: number;
+  /**
+   * What they ended the run thinking of the others, strongest opinion first.
+   *
+   * Reported per character rather than as a matrix because the relationship is
+   * not symmetric: `mara -> dez` and `dez -> mara` are separate numbers and a
+   * matrix presentation invites reading one cell as both.
+   */
+  readonly bonds: readonly (readonly [string, number])[];
+  /** What they ended the run thinking of the objects, strongest first. */
+  readonly impressions: readonly (readonly [string, number])[];
   /** Descending by hours, ties broken by label. Stable across runs. */
   readonly usage: readonly LabelUsage[];
 }
@@ -90,6 +101,12 @@ function summariseCharacter(character: CharacterState, blockedPlans: number): Ch
     idleHours: round2(character.hoursByLabel.get(IDLE_LABEL) ?? 0),
     roomId: character.roomId ?? null,
     blockedPlans,
+    bonds: (character.memory?.bondList() ?? []).map(
+      (entry) => [entry.id, round2(entry.value)] as const,
+    ),
+    impressions: (character.memory?.impressionList() ?? []).map(
+      (entry) => [entry.id, round2(entry.value)] as const,
+    ),
     usage,
   };
 }
@@ -158,6 +175,25 @@ export function formatSummary(summary: RunSummary): string {
       `  ends in ${character.roomId ?? 'nowhere in particular'}` +
         `, ${character.blockedPlans} wasted trip${character.blockedPlans === 1 ? '' : 's'}`,
     );
+
+    // Where the run left them with each other. Printed as one line per person
+    // rather than a grid, because a grid reads as symmetric and this is not:
+    // what Mara thinks of Dez is on Mara's card and nowhere else.
+    if (character.bonds.length > 0) {
+      lines.push(
+        `  thinks of  ${character.bonds
+          .map(([id, value]) => `${id} ${value >= 0 ? '+' : ''}${value.toFixed(2)}`)
+          .join('  ')}`,
+      );
+    }
+    if (character.impressions.length > 0) {
+      const strongest = character.impressions.slice(0, 5);
+      lines.push(
+        `  opinions   ${strongest
+          .map(([id, value]) => `${id} ${value >= 0 ? '+' : ''}${value.toFixed(2)}`)
+          .join('  ')}` + (character.impressions.length > 5 ? '  ...' : ''),
+      );
+    }
     lines.push('  time spent');
     for (const entry of character.usage) {
       const percent = `${(entry.share * 100).toFixed(1)}%`;
@@ -191,7 +227,31 @@ export interface MotiveComparison {
 /** One source of one motive, as a share of the time that character spent on it. */
 export interface SourceShare {
   readonly label: string;
+  /**
+   * Which objects answer to this label, sorted. Usually one; two beds are two.
+   *
+   * A run records labels, not objects — see `CharacterState.hoursByLabel` — so
+   * two identical beds are one row here whatever the house says. Naming the
+   * objects is how a reader tells "one source" from "two objects that do the
+   * same thing", which is exactly the question the duplicated `sleep` rows left
+   * open: identical label, identical numbers, and nothing to say whether the
+   * table was double-counting or the house had two beds.
+   */
+  readonly advertiserIds: readonly string[];
   readonly fractions: readonly number[];
+}
+
+/**
+ * What the caller says pays which motive.
+ *
+ * `advertiserId` is optional and is for the reader, not the arithmetic — the
+ * arithmetic is keyed on `label` either way, because that is the only key a run
+ * records.
+ */
+export interface MotiveSourceRef {
+  readonly label: string;
+  readonly motive: MotiveId;
+  readonly advertiserId?: string;
 }
 
 export interface MotiveMix {
@@ -268,7 +328,7 @@ export function compareRuns(
    * "take a shower" are two answers to the same question. The world knows, so
    * the world has to say.
    */
-  sources: readonly { readonly label: string; readonly motive: MotiveId }[] = [],
+  sources: readonly MotiveSourceRef[] = [],
 ): Comparison {
   const first = runs[0];
   if (!first) return { characterIds: [], runs: 0, labels: [], motives: [], mix: [], unused: [] };
@@ -324,7 +384,16 @@ export function compareRuns(
 
   const mix: MotiveMix[] = [];
   for (const motive of MOTIVE_IDS) {
-    const forMotive = sources.filter((entry) => entry.motive === motive);
+    // Collapsed by label before anything is divided, and this is load-bearing
+    // arithmetic rather than tidying.
+    //
+    // `shares` is keyed on label, so two beds both labelled `sleep` return the
+    // *same* number twice. Summing the list as given put that number into the
+    // denominator twice and then printed it twice, so the column still added up
+    // to 100% while every percentage in it was wrong — sleep understated by
+    // half, and everything else deflated by a denominator that counted a motive
+    // source it did not have. It read as a cosmetic duplicate. It was not.
+    const forMotive = collapseByLabel(sources.filter((entry) => entry.motive === motive));
     if (forMotive.length < 2) continue;
 
     const totals = characterIds.map((_, index) =>
@@ -332,6 +401,7 @@ export function compareRuns(
     );
     const rows: SourceShare[] = forMotive.map((entry) => ({
       label: entry.label,
+      advertiserIds: entry.advertiserIds,
       fractions: characterIds.map((_, index) => {
         const total = totals[index] ?? 0;
         return total > 0 ? (shares.get(entry.label)?.[index] ?? 0) / total : 0;
@@ -349,6 +419,34 @@ export function compareRuns(
   }
 
   return { characterIds, runs: runs.length, labels, motives, mix, unused };
+}
+
+/**
+ * One row per label, carrying the ids of every object that offers it.
+ *
+ * Order is first appearance, which the caller controls and the formatter sorts
+ * anyway; the ids are sorted here so the row reads the same however the world
+ * file happened to list its objects.
+ */
+function collapseByLabel(
+  entries: readonly MotiveSourceRef[],
+): { label: string; advertiserIds: readonly string[] }[] {
+  const byLabel = new Map<string, string[]>();
+  for (const entry of entries) {
+    const ids = byLabel.get(entry.label) ?? [];
+    if (entry.advertiserId !== undefined && !ids.includes(entry.advertiserId)) {
+      ids.push(entry.advertiserId);
+    }
+    byLabel.set(entry.label, ids);
+  }
+
+  const rows: { label: string; advertiserIds: readonly string[] }[] = [];
+  for (const [label, ids] of byLabel) {
+    const sorted = [...ids];
+    sorted.sort();
+    rows.push({ label, advertiserIds: sorted });
+  }
+  return rows;
 }
 
 export function formatComparison(comparison: Comparison): string {
@@ -373,12 +471,23 @@ export function formatComparison(comparison: Comparison): string {
     for (const entry of comparison.mix) {
       lines.push('');
       lines.push(
-        `  ${pad(entry.motive, 20)}${columns.join('')}   widest gap ` +
+        // 2 + 32 lines up with the rows' 4 + 30. Labels here run to "pick at the
+        // fruit bowl" and, qualified, to "sleep (bed-north, bed-south)", both of
+        // which overflowed the old 18-wide column and pushed that row's numbers
+        // out of line with every other row.
+        `  ${pad(entry.motive, 32)}${columns.join('')}   widest gap ` +
           `${(entry.spread * 100).toFixed(0)}pp`,
       );
       for (const source of entry.sources) {
+        // Qualified with the objects behind it whenever there is more than one,
+        // so a reader is never left wondering whether a row is double-counting.
+        // Two beds are one label and one row; the row says it is two beds.
+        const label =
+          source.advertiserIds.length > 1
+            ? `${source.label} (${source.advertiserIds.join(', ')})`
+            : source.label;
         lines.push(
-          `    ${pad(source.label, 18)}` +
+          `    ${pad(label, 30)}` +
             source.fractions.map((f) => padStart(`${(f * 100).toFixed(0)}%`, 8)).join(''),
         );
       }
@@ -416,11 +525,39 @@ export interface TimelineOptions {
    * "Mara went to the kitchen" four hundred times.
    */
   readonly includeMovement?: boolean;
+  /**
+   * Every memory written, including the pleasant ones and the opinions about
+   * furniture.
+   *
+   * Off by default, but *unlike* the two options above, the default is not
+   * silence. A grudge against a person is always narrated, because it is rare —
+   * a handful a day across five characters — and because it is the part of
+   * memory anybody watching is watching for. What this switches on is the rest:
+   * every conversation that went well, and every mild opinion about an armchair,
+   * which together outnumber the interesting lines about twenty to one.
+   */
+  readonly includeMemory?: boolean;
 }
 
 const BLOCKED_PHRASE: Record<BlockedReason, string> = {
   occupied: 'somebody else was already there',
   unavailable: 'there was none left',
+};
+
+/**
+ * How a memory reads as a sentence.
+ *
+ * The `{}` is the thing or the person it is about. Written from the
+ * rememberer's side, because that is whose head the number is in — nobody else
+ * in the house knows it happened.
+ */
+const MEMORY_PHRASE: Record<MemoryCause, string> = {
+  occupied: 'is getting tired of {}',
+  unavailable: 'is getting tired of {}',
+  worked: 'got on well with {}',
+  talked: 'enjoyed {}',
+  walked_out: 'minds that {} walked off',
+  snubbed: 'blames {}',
 };
 
 /** A human-readable narration of what happened, in order. */
@@ -470,6 +607,25 @@ export function formatTimeline(
       case 'resource_restocked':
         lines.push(`${event.clock}  ${pad('the house', 10)} has ${event.label} again`);
         break;
+      case 'remembered': {
+        if (!include(event.characterId)) break;
+        // A grudge against a person is news whatever the options say. Everything
+        // else waits to be asked for.
+        const dramatic = event.about === 'person' && event.delta < 0;
+        if (!options.includeMemory && !dramatic) break;
+        const about = event.about === 'person' ? nameOf(event.targetId) : event.targetId;
+        // Both numbers, because either alone misleads. The delta on its own
+        // hides that Orla started out fond of Juno; the running total on its own
+        // reads as though a snub were worth +0.02.
+        const signed = (value: number): string =>
+          `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
+        lines.push(
+          `${event.clock}  ${pad(nameOf(event.characterId), 10)} ` +
+            `${MEMORY_PHRASE[event.cause].replace('{}', about)} ` +
+            `(${signed(event.delta)}, now ${signed(event.value)})`,
+        );
+        break;
+      }
       case 'motive_critical':
         if (!options.includeMotiveEvents || !include(event.characterId)) break;
         lines.push(

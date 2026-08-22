@@ -26,6 +26,41 @@ export {
 } from './advertisement';
 
 export {
+  CastConfigError,
+  DEFAULT_CAST_PATH,
+  checkCastAgainstWorld,
+  loadCastFile,
+  parseCastConfig,
+  parseCastJson,
+  toCharacterSpecs,
+  type BondAmount,
+  type CastConfig,
+  type CharacterConfig,
+} from './cast';
+
+export {
+  ConfigError,
+  parseJsonWithKeys as parseJsonRecordingKeys,
+  type Keyed as KeyedDocument,
+} from './config/document';
+
+export {
+  DEFAULT_MEMORY,
+  MEMORY_LOG_STEP,
+  Memory,
+  OPINION_MAX,
+  charmScale,
+  clampOpinion,
+  forgivenessScale,
+  grievanceScale,
+  resolveMemoryConfig,
+  type MemoryAbout,
+  type MemoryCause,
+  type MemoryConfig,
+  type MemoryEntry,
+} from './memory';
+
+export {
   MINUTES_PER_DAY,
   formatClock,
   round2,
@@ -39,6 +74,7 @@ export {
   type MotiveRelievedEvent,
   type MovedEvent,
   type PlanBlockedEvent,
+  type RememberedEvent,
   type ResourceChangeReason,
   type RunFinishedEvent,
   type RunStartedEvent,
@@ -137,8 +173,11 @@ export {
   hoursOn,
   summariseRun,
   type CharacterSummary,
+  type Comparison,
   type LabelUsage,
+  type MotiveSourceRef,
   type RunSummary,
+  type SourceShare,
   type TimelineOptions,
 } from './summary';
 

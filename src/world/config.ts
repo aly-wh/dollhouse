@@ -28,18 +28,36 @@
  * A hand-edited data file's nastiest failure is a typo in an *optional* key.
  * `"capacty": 2` on the sofa is not a parse error — it is a sofa that silently
  * seats one, and a house that queues for no reason anybody can see. So parsing
- * rejects keys it does not recognise.
+ * rejects keys it does not recognise, and does it without `Object.keys`.
  *
- * Finding those keys without `Object.keys` is done with `JSON.parse`'s reviver,
- * which is handed every key in the document as it is internalised. The keys are
- * collected per node, sorted before they are reported, and used for nothing but
- * throwing. Document order cannot reach a motive.
+ * How that is done, and why it has to be done that way, is now
+ * `src/config/document.ts`, which #6 shares so that a typo in the cast file
+ * fails exactly as a typo in this one does. Nothing about the rule changed when
+ * it moved, and the generic readers below moved with it.
  *
  * `note` is accepted on every node and ignored. The reasoning behind a number
  * belongs next to the number.
  */
 
+import {
+  ConfigError,
+  NO_KEYS,
+  asRecord,
+  checkKeys,
+  describe,
+  optionalArray,
+  optionalBoolean,
+  optionalNumber,
+  parseJsonWithKeys,
+  requiredArray,
+  requiredNumber,
+  requiredString,
+  stringArray,
+  type Keyed,
+} from '../config/document';
 import { MOTIVE_IDS, type MotiveId, type PartialMotiveVector } from '../motives';
+
+export { parseJsonWithKeys, type Keyed };
 
 /** A motive id paired with an amount. See the note above on why this is a pair. */
 export type MotiveAmount = readonly [MotiveId, number];
@@ -121,12 +139,16 @@ export interface WorldConfig {
   readonly objects: readonly ObjectConfig[];
 }
 
-export class WorldConfigError extends Error {
-  constructor(
-    readonly path: string,
-    message: string,
-  ) {
-    super(`${path}: ${message}`);
+/**
+ * A `ConfigError` that says which kind of document it came from.
+ *
+ * Kept as its own named type because callers catch it by name — the CLI prints
+ * a bad house differently from a crash — and because a cast file's problems are
+ * not a house's.
+ */
+export class WorldConfigError extends ConfigError {
+  constructor(path: string, message: string) {
+    super(path, message);
     this.name = 'WorldConfigError';
   }
 }
@@ -150,133 +172,34 @@ const INTERACTION_KEYS = [
   'tags',
 ];
 
-/** Accepted anywhere and ignored. Reasoning belongs beside the number it explains. */
-const COMMENT_KEY = 'note';
-
-/**
- * Keys seen on each object node of a parsed document.
- *
- * Collected by the reviver rather than by enumerating the result, for the reason
- * given at the top of this file. `Keyed` is threaded through parsing so that a
- * caller who already has a plain object — a test, or #6 building a house in
- * memory — can still parse it, just without the unknown-key check.
- */
-export interface Keyed {
-  keysOf(node: object): readonly string[] | undefined;
-}
-
-const NO_KEYS: Keyed = { keysOf: () => undefined };
-
-/**
- * `JSON.parse`, recording every key against the object it appeared on.
- *
- * The reviver is called with `this` bound to the node holding the key, and the
- * nodes it is handed are the very ones that end up in the result, so the map can
- * be looked up by identity afterwards.
- */
-export function parseJsonWithKeys(text: string): { value: unknown; keyed: Keyed } {
-  const keys = new Map<object, string[]>();
-
-  const value: unknown = JSON.parse(text, function (this: unknown, key: string, held: unknown) {
-    if (key !== '' && typeof this === 'object' && this !== null && !Array.isArray(this)) {
-      const existing = keys.get(this);
-      if (existing) existing.push(key);
-      else keys.set(this, [key]);
-    }
-    return held;
-  });
-
-  return { value, keyed: { keysOf: (node) => keys.get(node) } };
-}
-
+/** House-specific complaints. The shared readers raise a plain `ConfigError`. */
 function fail(path: string, message: string): never {
   throw new WorldConfigError(path, message);
 }
 
-function asRecord(value: unknown, path: string): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    fail(path, `expected an object, got ${describe(value)}`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function describe(value: unknown): string {
-  if (value === null) return 'null';
-  if (Array.isArray(value)) return 'an array';
-  return typeof value;
-}
-
-function checkKeys(node: object, allowed: readonly string[], path: string, keyed: Keyed): void {
-  const seen = keyed.keysOf(node);
-  if (seen === undefined) return;
-  const unknown: string[] = [];
-  for (const key of seen) {
-    if (key === COMMENT_KEY) continue;
-    if (!allowed.includes(key)) unknown.push(key);
-  }
-  if (unknown.length > 0) {
-    // Sorted, so the message does not depend on the order the document happened
-    // to be written in.
-    unknown.sort();
-    fail(path, `unknown key${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}`);
+/**
+ * Everything thrown out of world parsing is a `WorldConfigError`.
+ *
+ * The shared readers in `src/config/document.ts` know nothing about houses and
+ * raise the base `ConfigError`; this restamps those on the way out so that a
+ * caller catching `WorldConfigError` still catches every problem with a world
+ * file, exactly as it did when this module owned the readers itself. Without it
+ * a misspelt key would escape `loadWorldFile`'s handler and be reported as
+ * invalid JSON, which is both wrong and much harder to act on.
+ */
+function asWorldError<T>(parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    if (error instanceof WorldConfigError) throw error;
+    if (error instanceof ConfigError) throw new WorldConfigError(error.path, bodyOf(error));
+    throw error;
   }
 }
 
-function requiredString(record: Record<string, unknown>, key: string, path: string): string {
-  const value = record[key];
-  if (typeof value !== 'string' || value.length === 0) {
-    fail(`${path}.${key}`, `expected a non-empty string, got ${describe(value)}`);
-  }
-  return value;
-}
-
-function requiredNumber(record: Record<string, unknown>, key: string, path: string): number {
-  const value = record[key];
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    fail(`${path}.${key}`, `expected a finite number, got ${describe(value)}`);
-  }
-  return value;
-}
-
-function optionalNumber(
-  record: Record<string, unknown>,
-  key: string,
-  path: string,
-): number | undefined {
-  if (record[key] === undefined) return undefined;
-  return requiredNumber(record, key, path);
-}
-
-function optionalBoolean(
-  record: Record<string, unknown>,
-  key: string,
-  path: string,
-): boolean | undefined {
-  const value = record[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== 'boolean') fail(`${path}.${key}`, `expected a boolean, got ${describe(value)}`);
-  return value;
-}
-
-function requiredArray(record: Record<string, unknown>, key: string, path: string): unknown[] {
-  const value = record[key];
-  if (!Array.isArray(value)) fail(`${path}.${key}`, `expected an array, got ${describe(value)}`);
-  return value;
-}
-
-function optionalArray(record: Record<string, unknown>, key: string, path: string): unknown[] {
-  if (record[key] === undefined) return [];
-  return requiredArray(record, key, path);
-}
-
-function stringArray(record: Record<string, unknown>, key: string, path: string): string[] {
-  const raw = optionalArray(record, key, path);
-  return raw.map((entry, index) => {
-    if (typeof entry !== 'string' || entry.length === 0) {
-      fail(`${path}.${key}[${index}]`, `expected a non-empty string, got ${describe(entry)}`);
-    }
-    return entry;
-  });
+/** `ConfigError` renders as "path: message"; this recovers the message half. */
+function bodyOf(error: ConfigError): string {
+  return error.message.slice(error.path.length + 2);
 }
 
 function isMotiveId(value: unknown): value is MotiveId {
@@ -546,6 +469,10 @@ function reachableFrom(config: WorldConfig, start: string): Set<string> {
 
 /** Parse and validate an already-decoded document. Used by tests and by #6. */
 export function parseWorldConfig(value: unknown, keyed: Keyed = NO_KEYS): WorldConfig {
+  return asWorldError(() => readWorldConfig(value, keyed));
+}
+
+function readWorldConfig(value: unknown, keyed: Keyed): WorldConfig {
   const record = asRecord(value, 'world');
   checkKeys(record, WORLD_KEYS, 'world', keyed);
 

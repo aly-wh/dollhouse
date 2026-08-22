@@ -12,6 +12,7 @@
  * precision — rounding the state instead would quietly change the simulation.
  */
 
+import type { MemoryAbout, MemoryCause } from './memory';
 import type { MotiveId, MotiveVector } from './motives';
 import type { TraitVector } from './personality';
 
@@ -127,7 +128,42 @@ export interface SnapshotEvent extends EventTiming {
     readonly action: string | null;
     readonly roomId: string | null;
     readonly motives: MotiveVector;
+    /**
+     * How this character currently feels about each of the others, strongest
+     * first. Empty when they hold no opinion of anybody.
+     *
+     * Bonds are carried here and impressions of *objects* are not, and the
+     * asymmetry is on purpose rather than an oversight. Bonds are O(cast) — four
+     * numbers in this house — and they are the state a viewer actually wants to
+     * watch drift. Impressions are O(cast x objects), most of them a settled
+     * mild positive, and putting them in every snapshot would multiply the log
+     * for no reading anybody does. Their movement is in `remembered`.
+     */
+    readonly bonds: readonly (readonly [string, number])[];
   }[];
+}
+
+/**
+ * A character's memory moved.
+ *
+ * Not emitted on every write. Memory is written whenever something completes,
+ * which is constantly, so the log reports a target when its value has drifted
+ * `MEMORY_LOG_STEP` from whatever was last reported for it. The result is that
+ * a grudge forming, a grudge fading and a fondness building are each a handful
+ * of lines, and "the armchair was fine again" is not a line at all.
+ *
+ * `value` is the running total, not the delta, so the whole trajectory of an
+ * opinion is legible from the log alone without replaying the arithmetic.
+ */
+export interface RememberedEvent extends EventTiming {
+  readonly kind: 'remembered';
+  readonly characterId: string;
+  readonly about: MemoryAbout;
+  /** An object id, or another character's id. */
+  readonly targetId: string;
+  readonly cause: MemoryCause;
+  readonly delta: number;
+  readonly value: number;
 }
 
 /**
@@ -251,6 +287,7 @@ export type SimEvent =
   | PlanBlockedEvent
   | MotiveCriticalEvent
   | MotiveRelievedEvent
+  | RememberedEvent
   | WorldEvent
   | SnapshotEvent
   | RunFinishedEvent;
