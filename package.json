@@ -3,10 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "DollHouse simulation engine — need-driven utility AI. Arithmetic only, no model calls.",
+  "description": "DollHouse simulation engine \u2014 need-driven utility AI. Arithmetic only, no model calls.",
   "license": "UNLICENSED",
   "engines": {
-    "node": ">=20"
+    "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

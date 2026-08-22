@@ -4,8 +4,7 @@ import type { Advertiser, WorldAdapter } from './advertisement';
 import type { ActionStartedEvent, SimEvent } from './events';
 import { motiveVector } from './motives';
 import { Simulation, runSimulation, type SimulationConfig } from './simulation';
-import { DEMO_CAST } from './demo/cast';
-import { DEMO_HOUSE } from './demo/house';
+import { TEST_CAST, TEST_HOUSE } from './testing/fixtures';
 
 const fridge: Advertiser = {
   id: 'fridge',
@@ -450,8 +449,8 @@ describe('speed', () => {
     const startedAt = Date.now();
     const result = runSimulation({
       seed: 'speed',
-      world: DEMO_HOUSE,
-      characters: [...DEMO_CAST, { id: 'zed', name: 'Zed', traits: { active: 0.9 } }],
+      world: TEST_HOUSE,
+      characters: TEST_CAST,
       days: 30,
     });
     const elapsed = Date.now() - startedAt;

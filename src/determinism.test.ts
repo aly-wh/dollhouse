@@ -20,16 +20,15 @@ import { join, relative } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { DEMO_CAST } from './demo/cast';
-import { DEMO_HOUSE } from './demo/house';
+import { TEST_CAST, TEST_HOUSE } from './testing/fixtures';
 import { runSimulation, type SimulationConfig } from './simulation';
 import { summariseRun } from './summary';
 
 const ROOT = process.cwd();
 
 const baseConfig: Omit<SimulationConfig, 'seed'> = {
-  world: DEMO_HOUSE,
-  characters: DEMO_CAST,
+  world: TEST_HOUSE,
+  characters: TEST_CAST,
   days: 4,
 };
 

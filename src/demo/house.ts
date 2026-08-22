@@ -3,9 +3,26 @@
  *
  * PLACEHOLDER. The real world — rooms, placement, which objects exist, how far
  * apart they are — is #5. This file exists so the engine has something to be
- * demonstrated against and so the tests have a world with real trade-offs in it
- * rather than one fridge and one bed. #5 should feel free to delete it entirely;
- * nothing in `src/` outside `src/demo/` imports it.
+ * watched running, which is the only way the three modelling bugs recorded below
+ * were ever going to be found.
+ *
+ * **What replacing it costs, precisely.** Unit tests do not touch this file;
+ * they use `src/testing/fixtures.ts`, which exists so that renaming a character
+ * or rebalancing a sofa cannot turn the suite red. But `src/demo/` is not
+ * free-standing:
+ *
+ *   - `cli.ts` imports this and `cast.ts`. Swap the imports and it keeps working.
+ *   - `determinism.test.ts` runs `cli.ts` as a *subprocess* for its
+ *     cross-process determinism check. That is deliberate — the check is worth
+ *     having only if it exercises a real entry point — so deleting `src/demo/`
+ *     outright means giving that test another one. Verified by doing it:
+ *     typecheck stays clean and exactly those two tests fail.
+ *
+ * Earlier this comment said the directory could simply be deleted because
+ * nothing outside it imported it. That was wrong, and the PR review caught it by
+ * following the instruction literally: four TS2307s and two failed test files.
+ * Recorded rather than quietly corrected, because a confident sentence pointing
+ * the wrong way is worse than no sentence at all.
  *
  * The design rule these numbers follow, which is worth carrying into #5:
  *

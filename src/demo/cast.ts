@@ -7,9 +7,13 @@
  * assertion.
  *
  * They are deliberately near the corners of the trait space. A cast clustered
- * around neutral would satisfy every test in this repo while producing four
- * characters who behave identically, which is the failure mode worth designing
- * against.
+ * around neutral would still pass every assertion in this repo while producing
+ * four characters who behave identically, which is the failure mode #6 should
+ * design against.
+ *
+ * Replacing them costs one import in `cli.ts`. The unit tests use
+ * `src/testing/fixtures.ts` and do not read this file — see the note on
+ * `house.ts` for what deleting `src/demo/` wholesale would still break.
  *
  * All four start on identical motives. Every difference in how their days go is
  * therefore attributable to trait weights and to their own random streams, and
